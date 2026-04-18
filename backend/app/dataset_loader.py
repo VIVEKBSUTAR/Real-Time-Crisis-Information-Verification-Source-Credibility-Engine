@@ -42,6 +42,18 @@ class DatasetLoader:
         self.claims = []
         self.loaded = False
     
+    def __len__(self):
+        """Return number of claims loaded"""
+        return len(self.claims)
+    
+    def __iter__(self):
+        """Allow iteration over claims"""
+        return iter(self.claims)
+    
+    def __getitem__(self, index):
+        """Allow indexing into claims"""
+        return self.claims[index]
+    
     def load(self) -> bool:
         """Load dataset from Excel file"""
         try:
