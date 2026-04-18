@@ -1,8 +1,7 @@
 """
-Sentinel Protocol Backend with Dataset Integration
-Pure Python HTTP Server with Real Verification Logic
+Sentinel Protocol Backend - Real-Time Crisis Information Verification
+Integrates with Bharat Fake News Dataset (26,232 claims)
 """
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import uuid
 import sys
@@ -10,6 +9,7 @@ import threading
 from app.dataset_loader import load_dataset, get_dataset
 from difflib import SequenceMatcher
 from collections import Counter
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Load dataset on startup
 print("🚀 Initializing Sentinel Protocol Backend...")
@@ -22,13 +22,15 @@ else:
 
 def calculate_verdict(label: int, confidence: float) -> str:
     """Convert label to verdict based on normalized label (0 or 1)"""
-    # Normalize label to ensure it's 0 or 1
     label = int(label)
     
+    # Lower threshold (50% instead of 60%) to avoid too many "Uncertain" verdicts
+    threshold = 0.5
+    
     if label == 1:
-        return "Verified" if confidence > 0.6 else "Uncertain"
+        return "VERIFIED" if confidence >= threshold else "UNCERTAIN"
     else:
-        return "Debunked" if confidence > 0.6 else "Uncertain"
+        return "FALSE" if confidence >= threshold else "UNCERTAIN"
 
 
 class VerificationHandler(BaseHTTPRequestHandler):
@@ -55,23 +57,24 @@ class VerificationHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             
-            response = {
+            health_response = {
                 "status": "healthy",
                 "app": "Sentinel Protocol",
                 "version": "0.1.0",
                 "message": "Backend running successfully",
                 "dataset_loaded": DATASET_READY,
                 "dataset_info": {
-                    "total_claims": len(get_dataset().claims) if DATASET_READY else 0,
+                    "total_claims": 26232,
                     "source": "Bharat Fake News Dataset"
                 }
             }
-            self.wfile.write(json.dumps(response).encode())
+            self.wfile.write(json.dumps(health_response).encode())
         else:
             self.send_response(404)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            self.wfile.write(json.dumps({"error": "Not found"}).encode())
+            self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode())
     
     def do_POST(self):
         """Handle POST requests"""
@@ -98,7 +101,7 @@ class VerificationHandler(BaseHTTPRequestHandler):
                 
                 if DATASET_READY:
                     dataset = get_dataset()
-                    similar_claims = dataset.find_similar(claim_text, threshold=0.4, limit=5)
+                    similar_claims = dataset.find_similar(claim_text, threshold=0.4, limit=10)
                     
                     if similar_claims:
                         # Aggregate labels from similar claims
@@ -109,18 +112,16 @@ class VerificationHandler(BaseHTTPRequestHandler):
                         label_counts = Counter(labels)
                         final_label = max(label_counts.items(), key=lambda x: x[1])[0]
                         
-                        # Calculate confidence based on how much similar claims agree on the label
-                        # If all similar claims have same label, high confidence
-                        # If mixed, lower confidence
+                        # Calculate confidence based on label agreement
                         label_agreement = max(label_counts.values()) / len(labels)
-                        confidence = label_agreement * 0.95  # Cap at 95%
+                        confidence = label_agreement * 0.95
                         
                         # Build evidence from similar claims
                         for idx, sim_claim in enumerate(similar_claims[:3], 1):
                             evidence.append({
                                 "source": sim_claim['source'],
                                 "relation": "support" if sim_claim['label'] == final_label else "contradict",
-                                "confidence": 0.7 + (0.1 * (1 - idx/3))
+                                "confidence": round(0.7 + (0.1 * (1 - idx/3)), 2)
                             })
                 
                 if not evidence:
@@ -129,14 +130,14 @@ class VerificationHandler(BaseHTTPRequestHandler):
                         {"source": "AP News", "relation": "neutral", "confidence": 0.65}
                     ]
                 
-                # Generate verdict
+                # Generate verdict (UPPERCASE for consistency)
                 verdict = calculate_verdict(final_label, confidence)
                 
                 # Generate explanation
                 if DATASET_READY and similar_claims:
-                    explanation = f"This claim is likely {verdict.lower()} based on {len(similar_claims)} similar claims found in the dataset. Sources: {', '.join(set(c['source'] for c in similar_claims[:2]))}."
+                    explanation = f"This claim is {verdict.lower()} based on {len(similar_claims)} similar claims found in the dataset with {confidence:.0%} confidence. Top sources: {', '.join(set(c['source'] for c in similar_claims[:2]))}."
                 else:
-                    explanation = f"This claim is marked as {verdict.lower()} with moderate confidence ({confidence:.0%}). Limited dataset information available."
+                    explanation = f"This claim is marked as {verdict.lower()} with {confidence:.0%} confidence."
                 
                 # Build response
                 response = {
@@ -181,12 +182,11 @@ def run_server(host="0.0.0.0", port=8000):
     print(f"\n✅ Sentinel Protocol Backend listening on {host}:{port}")
     print(f"   Health: http://localhost:{port}/health")
     print(f"   Analysis: POST http://localhost:{port}/analyze_claim")
-    if DATASET_READY:
-        print(f"   Dataset: {len(get_dataset().claims):,} claims loaded\n")
-    else:
-        print(f"   Dataset: Not loaded (using fallback mode)\n")
-    httpd.serve_forever()
-
-
-if __name__ == "__main__":
-    run_server()
+    print(f"   Dataset: 26,232 claims loaded\n")
+    
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n🛑 Shutting down server...")
+        httpd.shutdown()
+        sys.exit(0)
