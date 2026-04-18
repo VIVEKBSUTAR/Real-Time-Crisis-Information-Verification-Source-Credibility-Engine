@@ -17,6 +17,13 @@ from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
 from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
 
+# Custom HTTPServer with SO_REUSEADDR enabled (prevents "Address already in use")
+class ReuseAddrHTTPServer(HTTPServer):
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        HTTPServer.server_bind(self)
+
+
 print("\n🚀 LIGHTWEIGHT MODE - Sentinel Protocol Backend")
 print("=" * 60)
 print("Fast data endpoints + analysis pipeline")
@@ -86,8 +93,14 @@ def ensure_dataset_loaded():
     
     return False
 
-# Initialize advanced pipeline
-pipeline = AdvancedVerificationPipeline()
+# Initialize advanced pipeline (lazy - created on first use)
+pipeline = None
+
+def get_pipeline():
+    global pipeline
+    if pipeline is None:
+        pipeline = AdvancedVerificationPipeline()
+    return pipeline
 
 class LightweightHandler(BaseHTTPRequestHandler):
     """Handle requests efficiently"""
@@ -318,8 +331,7 @@ def run_server(port=8000):
     print("=" * 60 + "\n")
     
     server_address = ("", port)
-    httpd = HTTPServer(server_address, LightweightHandler)
-    httpd.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    httpd = ReuseAddrHTTPServer(server_address, LightweightHandler)
     
     try:
         httpd.serve_forever()
