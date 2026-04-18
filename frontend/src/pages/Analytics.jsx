@@ -3,25 +3,34 @@ import { BarChart3, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
 
 export default function Analytics() {
   const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const mockStats = {
-      total: 26232,
-      verified: 15913,
-      false: 10319,
-      accuracy: 87.5,
-      avgConfidence: 82.3,
-      topThreats: [
-        { category: 'Health Misinformation', count: 3421, trend: 'up' },
-        { category: 'Political Claims', count: 2890, trend: 'up' },
-        { category: 'Natural Disasters', count: 2145, trend: 'down' },
-        { category: 'Technology Rumors', count: 1876, trend: 'stable' },
-      ],
+    const fetchAnalytics = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/analytics');
+        if (response.ok) {
+          const data = await response.json();
+          setStats(data);
+        }
+      } catch (error) {
+        console.error('Error fetching analytics:', error);
+      } finally {
+        setLoading(false);
+      }
     };
-    setStats(mockStats);
+    fetchAnalytics();
   }, []);
 
-  if (!stats) return <div>Loading...</div>;
+  if (loading) {
+    return (
+      <div className="p-8 flex justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!stats) return <div className="p-8">Failed to load analytics</div>;
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -42,7 +51,7 @@ export default function Analytics() {
         </div>
         <div className="bg-white rounded-lg p-6 shadow-sm border-l-4 border-orange-500">
           <p className="text-gray-600 text-sm font-medium mb-2">Avg Confidence</p>
-          <p className="text-4xl font-bold text-orange-600">{stats.avgConfidence}%</p>
+          <p className="text-4xl font-bold text-orange-600">{stats.avg_confidence}%</p>
           <p className="text-xs text-gray-500 mt-2">Average confidence score</p>
         </div>
       </div>
@@ -89,18 +98,18 @@ export default function Analytics() {
             Top Threat Categories
           </h3>
           <div className="space-y-4">
-            {stats.topThreats.map((item, idx) => (
+            {stats.top_threats.map((item, idx) => (
               <div key={idx} className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <p className="text-sm font-medium text-gray-700">{item.category}</p>
-                  <div className="w-64 bg-gray-200 rounded-full h-2 mt-2">
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
                     <div
                       className="bg-orange-500 h-2 rounded-full"
-                      style={{ width: `${(item.count / stats.topThreats[0].count) * 100}%` }}
+                      style={{ width: `${(item.count / stats.top_threats[0].count) * 100}%` }}
                     />
                   </div>
                 </div>
-                <span className="text-sm font-bold text-gray-900">{item.count}</span>
+                <span className="text-sm font-bold text-gray-900 ml-4">{item.count}</span>
               </div>
             ))}
           </div>

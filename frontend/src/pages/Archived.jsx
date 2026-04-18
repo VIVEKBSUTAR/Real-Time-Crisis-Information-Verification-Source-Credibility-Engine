@@ -4,30 +4,41 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 export default function Archived() {
   const [claims, setClaims] = useState([]);
   const [page, setPage] = useState(1);
-  const itemsPerPage = 10;
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Mock archived claims
-    const mockClaims = Array.from({ length: 45 }, (_, i) => ({
-      id: i + 1,
-      claim: `Sample claim ${i + 1}: A detailed misinformation claim that was analyzed and archived.`,
-      verdict: ['VERIFIED', 'FALSE', 'UNCERTAIN'][i % 3],
-      confidence: Math.floor(Math.random() * 40) + 60,
-      date: new Date(Date.now() - i * 86400000).toLocaleDateString(),
-    }));
-    setClaims(mockClaims);
-  }, []);
-
-  const start = (page - 1) * itemsPerPage;
-  const end = start + itemsPerPage;
-  const displayClaims = claims.slice(start, end);
-  const totalPages = Math.ceil(claims.length / itemsPerPage);
+    const fetchClaims = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`http://localhost:8000/archived?page=${page}`);
+        if (response.ok) {
+          const data = await response.json();
+          setClaims(data.claims);
+          setTotalPages(data.total_pages);
+        }
+      } catch (error) {
+        console.error('Error fetching claims:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchClaims();
+  }, [page]);
 
   const getVerdictBadge = (verdict) => {
     if (verdict === 'VERIFIED') return 'bg-green-100 text-green-800';
     if (verdict === 'FALSE') return 'bg-red-100 text-red-800';
     return 'bg-yellow-100 text-yellow-800';
   };
+
+  if (loading) {
+    return (
+      <div className="p-8 flex justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -45,9 +56,9 @@ export default function Archived() {
             </tr>
           </thead>
           <tbody>
-            {displayClaims.map((claim) => (
+            {claims.map((claim) => (
               <tr key={claim.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
-                <td className="px-6 py-4 text-sm text-gray-700">{claim.claim.substring(0, 50)}...</td>
+                <td className="px-6 py-4 text-sm text-gray-700">{claim.claim}</td>
                 <td className="px-6 py-4">
                   <span className={`${getVerdictBadge(claim.verdict)} px-3 py-1 rounded-full text-xs font-semibold`}>
                     {claim.verdict}
@@ -63,7 +74,7 @@ export default function Archived() {
 
       <div className="mt-6 flex items-center justify-between">
         <p className="text-sm text-gray-600">
-          Showing {start + 1}–{Math.min(end, claims.length)} of {claims.length} claims
+          Page {page} of {totalPages}
         </p>
         <div className="flex gap-2">
           <button
@@ -73,7 +84,7 @@ export default function Archived() {
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          {Array.from({ length: totalPages }, (_, i) => (
+          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => (
             <button
               key={i + 1}
               onClick={() => setPage(i + 1)}
