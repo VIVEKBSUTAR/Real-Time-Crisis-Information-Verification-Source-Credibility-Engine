@@ -1,8 +1,8 @@
-import DashboardLight from './DashboardLight';
+import Dashboard from './Dashboard';
 import './App.css';
 
 function App() {
-  return <DashboardLight />;
+  return <Dashboard />;
 }
 
 export default App;
