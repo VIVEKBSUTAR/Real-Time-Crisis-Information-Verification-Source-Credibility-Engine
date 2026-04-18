@@ -31,10 +31,28 @@ export default function MainLayout() {
     }
   };
 
+  const handleNavigate = (pageId) => {
+    setActivePage(pageId);
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+  };
+
   return (
-    <div className="w-screen h-screen flex flex-col bg-slate-100">
+    <div className="relative w-screen h-screen flex flex-col overflow-hidden">
+      <video
+        className="absolute inset-0 w-full h-full object-cover"
+        autoPlay
+        loop
+        muted
+        playsInline
+      >
+        <source src="/background.mp4" type="video/mp4" />
+      </video>
+      <div className="absolute inset-0 bg-slate-950/18" />
+
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 text-slate-100 px-6 py-3 flex-shrink-0 shadow-md">
+      <div className="relative z-10 bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 text-slate-100 px-6 py-3 flex-shrink-0 shadow-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold bg-white/10 border border-white/20 px-3 py-1 rounded-full tracking-wide">LIVE</span>
@@ -45,7 +63,7 @@ export default function MainLayout() {
       </div>
 
       {/* Header */}
-      <div className="bg-white/95 backdrop-blur border-b border-slate-200 px-6 py-4 flex-shrink-0 shadow-sm">
+      <div className="relative z-10 bg-white border-b border-slate-200 px-6 py-4 flex-shrink-0 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -71,21 +89,18 @@ export default function MainLayout() {
       </div>
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative z-10 flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <div className={`${
           sidebarOpen ? 'w-64' : 'w-0'
-        } bg-white border-r border-slate-200 transition-all duration-300 overflow-y-auto flex-shrink-0`}>
+        } bg-white/95 border-r border-slate-200 transition-all duration-300 overflow-y-auto flex-shrink-0`}>
           <nav className="p-6 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
               <button
                 key={item.id}
-                onClick={() => {
-                  setActivePage(item.id);
-                  setSidebarOpen(false);
-                }}
+                onClick={() => handleNavigate(item.id)}
                 className={`w-full text-left px-4 py-3 rounded-xl font-medium transition flex items-center gap-3 ${
                   activePage === item.id
                     ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 shadow-sm'
@@ -101,7 +116,7 @@ export default function MainLayout() {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 overflow-y-auto bg-slate-100">
+        <div className="flex-1 overflow-y-auto bg-slate-100/82 backdrop-blur-[1px]">
           {renderPage()}
         </div>
       </div>
