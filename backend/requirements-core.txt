@@ -1,0 +1,14 @@
+# Core Framework
+fastapi==0.68.0
+uvicorn==0.15.0
+python-multipart==0.0.5
+
+# Database
+sqlalchemy==1.4.46
+
+# Pydantic v1 (stable, works with older FastAPI)
+pydantic==1.10.2
+
+# Utils
+python-dotenv==1.0.0
+requests==2.31.0

@@ -1,5 +1,13 @@
-from pydantic import BaseSettings
-from typing import Optional
+"""
+Application configuration using Pydantic
+Compatible with both Pydantic v1 and v2
+"""
+import os
+try:
+    from pydantic import BaseSettings
+except ImportError:
+    from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     """Application settings from environment variables"""
@@ -7,17 +15,12 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "Sentinel Protocol"
     APP_VERSION: str = "0.1.0"
-    DEBUG: bool = True
+    DEBUG: bool = False
     
     # Database
-    DATABASE_URL: str = "sqlite:///./sentinel.db"
+    DATABASE_URL: str = "sqlite:///./app.db"
     
-    # Vector DB (Qdrant)
-    QDRANT_HOST: str = "localhost"
-    QDRANT_PORT: int = 6333
-    QDRANT_COLLECTION_NAME: str = "sentinel_claims"
-    
-    # ML Models
+    # ML Models (optional)
     EMBEDDING_MODEL: str = "sentence-transformers/multilingual-MiniLM-L6-v2"
     NLI_MODEL: str = "facebook/bart-large-mnli"
     
@@ -29,21 +32,21 @@ class Settings(BaseSettings):
     # Trusted Sources
     TRUSTED_SOURCES: list = [
         "Reuters",
-        "AP News", 
+        "AP News",
         "BBC",
-        "Press Information Bureau",
-        "News18",
-        "The Hindu",
-        "NDTV",
-        "India Today"
+        "Associated Press",
+        "NPR",
+        "The Guardian",
+        "NYTimes",
+        "Washington Post"
     ]
-    
-    # Processing
-    EMBEDDING_BATCH_SIZE: int = 32
-    MAX_PROCESSING_TIME: int = 30  # seconds
     
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "allow"
 
+
+# Create settings instance - ignore any external DEBUG env var
+os.environ.pop('DEBUG', None)
 settings = Settings()
