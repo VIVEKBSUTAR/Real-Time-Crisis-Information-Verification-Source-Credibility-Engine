@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { Search, AlertCircle, CheckCircle, XCircle, Menu, Settings, LogOut, Archive, Globe, BarChart3, HelpCircle, TrendingUp } from 'lucide-react';
+import { Search, AlertCircle, CheckCircle, XCircle, Settings, LogOut, Archive, Globe, BarChart3, HelpCircle, TrendingUp } from 'lucide-react';
 
 export default function Dashboard() {
   const [claim, setClaim] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [activeTab, setActiveTab] = useState('intelligence');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -120,51 +119,49 @@ export default function Dashboard() {
 
       <div className="flex">
         {/* Sidebar */}
-        <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 min-h-[calc(100vh-140px)] flex flex-col`}>
+        <div className="w-64 bg-white border-r border-gray-200 transition-all duration-300 min-h-[calc(100vh-140px)] flex flex-col">
           <div className="p-6 space-y-6">
             <div>
               <h2 className="text-xs font-bold text-gray-500 uppercase mb-4">SENTINEL</h2>
               <nav className="space-y-3">
                 <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-blue-50 text-blue-600 font-semibold cursor-pointer hover:bg-blue-100 transition">
                   <BarChart3 size={20} />
-                  {sidebarOpen && <span>Intelligence</span>}
+                  <span>Intelligence</span>
                 </div>
                 <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
                   <TrendingUp size={20} />
-                  {sidebarOpen && <span className="text-sm">Active Threats</span>}
+                  <span className="text-sm">Active Threats</span>
                 </div>
                 <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
                   <Archive size={20} />
-                  {sidebarOpen && <span className="text-sm">Archived</span>}
+                  <span className="text-sm">Archived</span>
                 </div>
                 <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
                   <Globe size={20} />
-                  {sidebarOpen && <span className="text-sm">Global Map</span>}
+                  <span className="text-sm">Global Map</span>
                 </div>
                 <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
                   <Settings size={20} />
-                  {sidebarOpen && <span className="text-sm">Settings</span>}
+                  <span className="text-sm">Settings</span>
                 </div>
               </nav>
             </div>
 
             <div className="border-t border-gray-200 pt-4">
-              {sidebarOpen && (
-                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition">
-                  New Analysis
-                </button>
-              )}
+              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+                New Analysis
+              </button>
             </div>
           </div>
 
           <div className="mt-auto border-t border-gray-200 p-4 space-y-3">
             <button className="flex items-center gap-3 text-gray-700 hover:bg-gray-100 w-full px-4 py-2 rounded-lg transition">
               <HelpCircle size={18} />
-              {sidebarOpen && <span className="text-sm">Help</span>}
+              <span className="text-sm">Help</span>
             </button>
             <button className="flex items-center gap-3 text-gray-700 hover:bg-gray-100 w-full px-4 py-2 rounded-lg transition">
               <LogOut size={18} />
-              {sidebarOpen && <span className="text-sm">Logout</span>}
+              <span className="text-sm">Logout</span>
             </button>
           </div>
         </div>
