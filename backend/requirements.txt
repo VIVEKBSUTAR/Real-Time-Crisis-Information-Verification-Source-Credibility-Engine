@@ -16,6 +16,7 @@ numpy==1.24.3
 # Utils
 python-dotenv==1.0.0
 requests==2.31.0
+google-generativeai==0.8.5
 
 # For production: uncomment these
 # sentence-transformers==2.2.2

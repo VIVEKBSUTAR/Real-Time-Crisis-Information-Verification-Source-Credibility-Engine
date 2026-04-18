@@ -16,6 +16,11 @@ from app.core.semantic_pipeline import initialize_embedding_model, get_embedding
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
 from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
+from app.explainability import (
+    build_explainability_input,
+    generate_evidence_summary,
+    generate_explanation,
+)
 
 # Custom HTTPServer with SO_REUSEADDR enabled (prevents "Address already in use")
 class ReuseAddrHTTPServer(HTTPServer):
@@ -108,6 +113,18 @@ class LightweightHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         if "health" not in args[0]:
             sys.stderr.write(f"[{self.client_address[0]}] {format%args}\n")
+
+    def send_json_response(self, code, payload):
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(safe_json_dumps(payload).encode())
+            return True
+        except (BrokenPipeError, ConnectionResetError):
+            print("   ⚠️  Client disconnected before response was sent")
+            return False
     
     def do_OPTIONS(self):
         self.send_response(200)
@@ -122,11 +139,6 @@ class LightweightHandler(BaseHTTPRequestHandler):
         query_params = parse_qs(parsed_path.query)
         
         if path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            
             response = {
                 "status": "healthy",
                 "app": "Sentinel Protocol (Lightweight)",
@@ -135,7 +147,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 "dataset_ready": DATASET_READY,
                 "endpoints": ["/health", "/analytics", "/archived", "/threats", "/regions", "/analyze_claim"]
             }
-            self.wfile.write(safe_json_dumps(response).encode())
+            self.send_json_response(200, response)
             return
         
         elif path == "/analytics":
@@ -162,11 +174,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 ]
             }
             
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(safe_json_dumps(response).encode())
+            self.send_json_response(200, response)
             return
         
         elif path == "/archived":
@@ -205,11 +213,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 "total_pages": (len(items) + page_size - 1) // page_size
             }
             
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(safe_json_dumps(response).encode())
+            self.send_json_response(200, response)
             return
         
         elif path == "/threats":
@@ -231,11 +235,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     "shares": np.random.randint(500, 4000),
                 })
             
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(safe_json_dumps(threats).encode())
+            self.send_json_response(200, threats)
             return
         
         elif path == "/regions":
@@ -247,16 +247,10 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 {"name": "Central India", "threats": 98, "severity": "LOW"},
             ]
             
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(safe_json_dumps(regions).encode())
+            self.send_json_response(200, regions)
             return
         
-        self.send_response(404)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
+        self.send_json_response(404, {"error": "Not found", "code": 404})
     
     def do_POST(self):
         if self.path == "/analyze_claim":
@@ -290,22 +284,18 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 credibility = result.get("credibility", {}) or {}
                 raw_verdict = str(credibility.get("verdict", "")).upper()
                 if "TRUE" in raw_verdict:
-                    verdict = "VERIFIED"
+                    verdict = "TRUE"
                 elif "FALSE" in raw_verdict:
                     verdict = "FALSE"
                 else:
                     verdict = "UNVERIFIED"
 
                 confidence = float(credibility.get("confidence", 0.5))
-                explanation = credibility.get(
-                    "reasoning",
-                    f"Claim analyzed against similar records in the dataset. Verdict: {verdict}.",
-                )
 
                 similar_claims = result.get("similar_claims", []) or []
-                evidence = []
+                sources = []
                 for item in similar_claims[:5]:
-                    evidence.append(
+                    sources.append(
                         {
                             "text": item.get("statement", ""),
                             "similarity": item.get("similarity", 0.0),
@@ -313,15 +303,24 @@ class LightweightHandler(BaseHTTPRequestHandler):
                         }
                     )
 
+                explainability_data = build_explainability_input(
+                    claim=claim,
+                    verdict=verdict,
+                    confidence=confidence,
+                    sources=sources,
+                )
+                explanation = generate_explanation(explainability_data)
+                evidence_summary = generate_evidence_summary(explainability_data)
+
                 response = {
-                    "claim": claim,
-                    "original_claim": claim,
                     "verdict": verdict,
                     "confidence": confidence,
                     "explanation": explanation,
-                    "evidence_summary": explanation,
-                    "evidence": evidence,
-                    "sources": evidence,
+                    "evidence_summary": evidence_summary,
+                    "sources": sources,
+                    "claim": claim,
+                    "original_claim": claim,
+                    "evidence": explainability_data["evidence"],
                     "normalized_claim": result.get("normalized_claim"),
                     "similar_claims": similar_claims,
                     "credibility": credibility,
@@ -329,27 +328,17 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     "dataset_used": "optimized_10k_curated",
                 }
                 
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(safe_json_dumps(response).encode())
-                print(f"   ✅ Response sent\n")
+                if self.send_json_response(200, response):
+                    print(f"   ✅ Response sent\n")
                 
             except Exception as e:
                 print(f"   ❌ Error: {e}\n")
                 self.send_error_response(500, str(e)[:100])
         else:
-            self.send_response(404)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
+            self.send_json_response(404, {"error": "Not found", "code": 404})
     
     def send_error_response(self, code, message):
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(safe_json_dumps({"error": message, "code": code}).encode())
+        self.send_json_response(code, {"error": message, "code": code})
 
 def run_server(port=8000):
     print(f"3️⃣  Starting HTTP server on port {port}...\n")

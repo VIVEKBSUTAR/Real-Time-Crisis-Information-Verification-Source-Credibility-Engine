@@ -23,45 +23,45 @@ export default function ActiveThreats() {
   }, []);
 
   const getSeverityColor = (severity) => {
-    if (severity === 'CRITICAL') return { badge: 'bg-red-100 text-red-800', icon: 'text-red-600' };
-    if (severity === 'HIGH') return { badge: 'bg-orange-100 text-orange-800', icon: 'text-orange-600' };
-    return { badge: 'bg-yellow-100 text-yellow-800', icon: 'text-yellow-600' };
+    if (severity === 'CRITICAL') return { badge: 'bg-rose-100 text-rose-800', icon: 'text-rose-600', border: 'border-rose-500' };
+    if (severity === 'HIGH') return { badge: 'bg-orange-100 text-orange-800', icon: 'text-orange-600', border: 'border-orange-500' };
+    return { badge: 'bg-amber-100 text-amber-800', icon: 'text-amber-600', border: 'border-amber-500' };
   };
 
   if (loading) {
-    return (
-      <div className="p-8 flex justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
+      return (
+        <div className="p-8 flex justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        </div>
+      );
   }
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">Active Threats</h1>
-      <p className="text-gray-600 mb-8">High-confidence false claims spreading rapidly</p>
+      <h1 className="text-3xl font-bold text-slate-900 mb-2">Active Threats</h1>
+      <p className="text-slate-600 mb-8">High-confidence false claims spreading rapidly</p>
 
       <div className="space-y-4">
         {threats.map((threat) => {
           const color = getSeverityColor(threat.severity);
           return (
-            <div key={threat.id} className="bg-white border-l-4 border-red-500 rounded-lg p-6 shadow-sm hover:shadow-md transition">
+            <div key={threat.id} className={`bg-white border-l-4 ${color.border} rounded-2xl p-6 shadow-sm hover:shadow-md transition border border-slate-200`}>
               <div className="flex items-start gap-4">
                 <AlertTriangle className={`w-6 h-6 flex-shrink-0 ${color.icon}`} />
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">{threat.claim}</h3>
+                    <h3 className="text-lg font-semibold text-slate-900">{threat.claim}</h3>
                     <span className={`${color.badge} px-3 py-1 rounded-full text-xs font-semibold`}>
                       {threat.severity}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600 mb-4">False Claim Detected • Confidence: {threat.confidence}%</p>
+                  <p className="text-sm text-slate-600 mb-4">False Claim Detected • Confidence: {threat.confidence}%</p>
                   <div className="flex gap-8 text-sm">
                     <div className="flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4 text-red-600" />
-                      <span className="text-gray-700"><strong>{threat.threats}</strong> active threats</span>
+                      <TrendingUp className={`w-4 h-4 ${color.icon}`} />
+                      <span className="text-slate-700"><strong>{threat.threats}</strong> active threats</span>
                     </div>
-                    <div className="text-gray-600">
+                    <div className="text-slate-600">
                       <strong>{threat.shares}</strong> shares detected
                     </div>
                   </div>

@@ -25,27 +25,27 @@ export default function GlobalMap() {
   if (loading) {
     return (
       <div className="p-8 flex justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">Global Map</h1>
-      <p className="text-gray-600 mb-8">Geographic distribution of active threats</p>
+      <h1 className="text-3xl font-bold text-slate-900 mb-2">Global Map</h1>
+      <p className="text-slate-600 mb-8">Geographic distribution of active threats</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Map */}
-        <div className="lg:col-span-2 bg-white rounded-lg p-8 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center gap-2">
-            <Globe className="w-5 h-5 text-blue-600" />
+        <div className="lg:col-span-2 bg-white rounded-2xl p-8 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900 mb-6 flex items-center gap-2">
+            <Globe className="w-5 h-5 text-indigo-600" />
             India Threat Map
           </h3>
           
-          <div className="bg-gray-100 rounded-lg p-8 text-center">
+          <div className="bg-slate-50 rounded-xl p-8 text-center border border-slate-200">
             <svg viewBox="0 0 400 300" className="w-full h-full max-h-96 mx-auto">
-              <rect width="400" height="300" fill="#f3f4f6" />
+              <rect width="400" height="300" fill="#f8fafc" />
               <circle cx="100" cy="60" r="35" fill="#fecaca" opacity="0.7" stroke="#dc2626" strokeWidth="2" />
               <text x="100" y="70" textAnchor="middle" fill="#991b1b" fontSize="12" fontWeight="bold">North</text>
               <circle cx="280" cy="100" r="35" fill="#fca5a5" opacity="0.7" stroke="#dc2626" strokeWidth="2" />
@@ -62,26 +62,26 @@ export default function GlobalMap() {
           <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-red-200 border-2 border-red-500 rounded"></div>
-              <span>Critical (250+)</span>
+              <span className="text-slate-700">Critical (250+)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-red-100 border-2 border-red-400 rounded"></div>
-              <span>High (150-250)</span>
+              <span className="text-slate-700">High (150-250)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-yellow-100 border-2 border-yellow-400 rounded"></div>
-              <span>Medium (50-150)</span>
+              <span className="text-slate-700">Medium (50-150)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-green-100 border-2 border-green-400 rounded"></div>
-              <span>Low (&lt;50)</span>
+              <span className="text-slate-700">Low (&lt;50)</span>
             </div>
           </div>
         </div>
 
         {/* Regional Stats */}
-        <div className="bg-white rounded-lg p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Regional Threats</h3>
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">Regional Threats</h3>
           <div className="space-y-3">
             {regions.map((region, idx) => {
               const severityColor = region.severity === 'CRITICAL' ? 'bg-red-200 border-red-500' :
@@ -91,8 +91,8 @@ export default function GlobalMap() {
               
               return (
                 <div key={idx} className={`${severityColor} border-l-4 p-4 rounded`}>
-                  <p className="font-semibold text-gray-900 text-sm">{region.name}</p>
-                  <p className="text-xs text-gray-600 mt-1">{region.threats} active threats</p>
+                  <p className="font-semibold text-slate-900 text-sm">{region.name}</p>
+                  <p className="text-xs text-slate-600 mt-1">{region.threats} active threats</p>
                   <p className={`text-xs font-semibold mt-2 ${
                     region.severity === 'CRITICAL' ? 'text-red-700' :
                     region.severity === 'HIGH' ? 'text-red-600' :
