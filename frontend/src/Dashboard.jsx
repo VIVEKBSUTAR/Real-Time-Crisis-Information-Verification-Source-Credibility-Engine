@@ -35,10 +35,7 @@ const Dashboard = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          input_type: 'text',
-          source: 'direct_input',
-          content: claim,
-          timestamp: new Date().toISOString(),
+          text: claim,
         }),
       });
 
@@ -51,18 +48,14 @@ const Dashboard = () => {
       const newVerification = {
         id: data.claim_id || Date.now(),
         claim: claim || 'No claim provided',
-        verdict: data.label || 'Unverified',
-        color: data.label === 'TRUE' ? '#10B981' : '#ff6b35',
+        verdict: data.verdict || 'Unverified',
+        color: data.verdict === 'Verified' ? '#10B981' : data.verdict === 'Debunked' ? '#ff6b35' : '#f59e0b',
         confidence: Math.round(data.confidence * 100) || 52,
         analysis: data.explanation || 'Unable to determine claim veracity at this time.',
-        supportingSources: data.supporting_sources || [
-          { name: 'No sources found', quote: 'Dataset search in progress' }
-        ],
-        missingSources: data.missing_sources || [
-          'No corroborating sources found in dataset'
-        ],
+        supportingSources: (data.evidence || []).map(e => ({ name: e.source, quote: e.relation })),
+        missingSources: [],
         hasExifWarning: false,
-        sourcesChecked: data.sources_checked || 0,
+        sourcesChecked: data.similar_claims_found || 0,
       };
 
       setVerifications([newVerification, ...verifications]);
