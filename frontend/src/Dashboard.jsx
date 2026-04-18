@@ -21,49 +21,72 @@ const Dashboard = () => {
     { time: '11:00', reuters: 94, apnews: 89, bbc: 87 },
   ];
 
-  const generateVerification = () => {
-    const verdicts = [
-      { label: 'Verified', color: '#10B981' },
-      { label: 'False', color: '#ff6b35' },
-      { label: 'Manipulated', color: '#ff6b35' },
-      { label: 'Unverified', color: '#ff6b35' },
-    ];
-    
-    const verdict = verdicts[Math.floor(Math.random() * verdicts.length)];
-    const confidence = Math.floor(Math.random() * 50) + 35;
-    
-    return {
-      id: Date.now(),
-      claim: claim || 'No claim provided',
-      verdict: verdict.label,
-      color: verdict.color,
-      confidence,
-      analysis: `The claim regarding "${claim.substring(0, 40)}..." is highly speculative and lacks empirical validation from official channels.`,
-      supportingSources: [
-        { name: 'Reuters', quote: 'Authorities investigating the incident' },
-        { name: 'NDTV', quote: 'No official infrastructure failure confirmed' }
-      ],
-      missingSources: [
-        'No confirmation from government agencies',
-        'Negative Result: No corroborating data found from Disaster Management Authority'
-      ],
-      hasExifWarning: Math.random() > 0.7,
-      sourcesChecked: Math.floor(Math.random() * 8) + 8,
-    };
-  };
-
-  const handleAnalyze = (e) => {
+  // Professional API-integrated handler
+  const handleAnalyze = async (e) => {
     e.preventDefault();
     if (!claim.trim()) return;
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      const newVerification = generateVerification();
+    try {
+      const response = await fetch('http://localhost:8000/analyze_claim', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input_type: 'text',
+          source: 'direct_input',
+          content: claim,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      const newVerification = {
+        id: data.claim_id || Date.now(),
+        claim: claim || 'No claim provided',
+        verdict: data.label || 'Unverified',
+        color: data.label === 'TRUE' ? '#10B981' : '#ff6b35',
+        confidence: Math.round(data.confidence * 100) || 52,
+        analysis: data.explanation || 'Unable to determine claim veracity at this time.',
+        supportingSources: data.supporting_sources || [
+          { name: 'No sources found', quote: 'Dataset search in progress' }
+        ],
+        missingSources: data.missing_sources || [
+          'No corroborating sources found in dataset'
+        ],
+        hasExifWarning: false,
+        sourcesChecked: data.sources_checked || 0,
+      };
+
       setVerifications([newVerification, ...verifications]);
       setClaim('');
+    } catch (error) {
+      console.error('Error analyzing claim:', error);
+      
+      const errorVerification = {
+        id: Date.now(),
+        claim: claim || 'No claim provided',
+        verdict: 'Error',
+        color: '#ff6b35',
+        confidence: 0,
+        analysis: `Error connecting to verification service: ${error.message}. Please ensure backend is running on http://localhost:8000`,
+        supportingSources: [],
+        missingSources: ['Backend connection failed'],
+        hasExifWarning: false,
+        sourcesChecked: 0,
+      };
+      
+      setVerifications([errorVerification, ...verifications]);
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
 
   return (
@@ -120,291 +143,240 @@ const Dashboard = () => {
             </button>
           ))}
         </nav>
+
+        <div style={{ padding: '0 16px', borderTop: '1px solid #2d2d2d', paddingTop: '16px' }}>
+          <div style={{ color: '#6a6a6a', fontSize: '11px', letterSpacing: '0.5px' }}>
+            SYSTEM STATUS
+          </div>
+          <div style={{ color: '#10B981', fontSize: '12px', fontWeight: 'bold', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ width: '6px', height: '6px', background: '#10B981', borderRadius: '50%' }}></span>
+            LIVE
+          </div>
+        </div>
       </aside>
 
       {/* MAIN CONTENT */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {/* HEADER */}
-        <header style={{ borderBottom: '1px solid #2d2d2d' }}>
-          <div style={{ padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ color: '#e0e0e0', fontSize: '16px', fontWeight: '600', letterSpacing: '1px' }}>
-              SENTINEL PROTOCOL
-            </h1>
-            <div style={{ display: 'flex', gap: '20px', fontSize: '12px', color: '#9a9a9a' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '8px', height: '8px', background: '#10B981', borderRadius: '50%' }}></span>
-                SYSTEM LIVE
-              </span>
-              <span>RESPONSE ~1.8s</span>
-            </div>
+        <header style={{ borderBottom: '1px solid #2d2d2d', padding: '20px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ color: '#e0e0e0', fontSize: '18px', fontWeight: '700', margin: 0, letterSpacing: '1px' }}>Sentinel Protocol</h1>
+            <p style={{ color: '#6a6a6a', fontSize: '11px', margin: '4px 0 0 0', letterSpacing: '0.5px' }}>Real-Time Crisis Information Verification</p>
           </div>
-
-          {/* ALERT BANNER */}
-          <div style={{ background: '#ff6b35', padding: '12px 32px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <AlertTriangle size={16} style={{ color: '#1a1a1a', flexShrink: 0 }} />
-            <span style={{ color: '#1a1a1a', fontSize: '12px', fontWeight: '500', letterSpacing: '0.5px' }}>
-              CRITICAL: MISINFORMATION DETECTED | CLAIMS TRENDING (23 ACTIVE) | HIGH IMPACT CONTENT | CLAIM CONFIDENCE
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <div style={{ textAlign: 'right', fontSize: '12px', color: '#e0e0e0', letterSpacing: '0.5px' }}>
+              <div style={{ color: '#10B981', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', background: '#10B981', borderRadius: '50%' }}></span>
+                System Live
+              </div>
+              <div style={{ color: '#6a6a6a', fontSize: '11px', marginTop: '2px' }}>Response ~1.8s</div>
+            </div>
           </div>
         </header>
 
-        {/* CONTENT AREA */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '32px' }}>
-          {/* FORM */}
-          <form onSubmit={handleAnalyze} style={{ marginBottom: '32px' }}>
-            <div style={{ marginBottom: '24px' }}>
-              <h2 style={{ color: '#e0e0e0', fontSize: '14px', fontWeight: '600', letterSpacing: '1px', marginBottom: '8px' }}>
-                CLAIMS PROCESSOR
-              </h2>
-            </div>
+        {/* ALERT STRIP */}
+        <div style={{ background: '#2d1a1a', borderBottom: '1px solid #5f2626', padding: '12px 32px', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px', color: '#ff6b35', letterSpacing: '0.5px' }}>
+          <AlertCircle size={16} />
+          <span style={{ fontWeight: '600' }}>🔥 ACTIVE MISINFORMATION ALERTS</span>
+          <span style={{ color: '#6a6a6a' }}>•</span>
+          <span>Bridge collapse rumor trending (23 mentions)</span>
+          <span style={{ color: '#6a6a6a' }}>•</span>
+          <span>Dam burst claim flagged (low credibility)</span>
+        </div>
 
-            <div style={{ marginBottom: '16px' }}>
-              <textarea
-                value={claim}
-                onChange={(e) => setClaim(e.target.value)}
-                placeholder="Paste claim to analyze..."
-                style={{
-                  width: '100%',
-                  padding: '16px',
-                  background: '#2d2d2d',
-                  border: '1px solid #3d3d3d',
-                  color: '#e0e0e0',
-                  fontSize: '14px',
-                  fontFamily: 'monospace',
-                  borderRadius: '0px',
-                  minHeight: '120px',
-                  outline: 'none',
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#ff6b35'}
-                onBlur={(e) => e.target.style.borderColor = '#3d3d3d'}
-              />
-            </div>
+        {/* BODY */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', flex: 1, gap: '0' }}>
+          {/* LEFT PANEL */}
+          <div style={{ borderRight: '1px solid #2d2d2d', padding: '32px', display: 'flex', flexDirection: 'column', background: '#0f0f0f' }}>
+            {/* INPUT SECTION */}
+            <div>
+              <h3 style={{ color: '#e0e0e0', fontSize: '14px', fontWeight: '700', margin: '0 0 12px 0', letterSpacing: '1px' }}>SIGNAL INGESTION</h3>
+              <p style={{ color: '#6a6a6a', fontSize: '11px', margin: '0 0 20px 0', letterSpacing: '0.5px' }}>Submit claims for real-time verification</p>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                type="submit"
-                disabled={isLoading || !claim.trim()}
-                style={{
-                  padding: '12px 24px',
-                  background: '#1a1a1a',
-                  color: '#e0e0e0',
-                  border: '1px solid #ff6b35',
-                  cursor: isLoading || !claim.trim() ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  letterSpacing: '0.5px',
-                  opacity: isLoading || !claim.trim() ? 0.5 : 1,
-                  transition: 'all 200ms',
-                }}
-                onMouseEnter={(e) => !isLoading && !claim.trim() ? null : (e.target.style.background = '#ff6b35', e.target.style.color = '#1a1a1a')}
-                onMouseLeave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.color = '#e0e0e0'; }}
-              >
-                {isLoading ? '⟳ ANALYZING...' : 'ANALYZE CREDIBILITY ▶'}
-              </button>
-              <span style={{ fontSize: '11px', color: '#6a6a6a' }}>
-                USES SOURCE VALIDATION + CROSS-VERIFICATION PROTOCOL
-              </span>
-            </div>
-          </form>
-
-          {/* RESULTS */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {verifications.map((verification, idx) => (
-              <div key={verification.id}>
-                {/* VERDICT CARD */}
-                <div
-                  style={{
-                    background: '#222a3d',
-                    borderLeft: '4px solid ' + verification.color,
-                    padding: '24px',
-                    marginBottom: '24px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                        <AlertTriangle size={20} style={{ color: verification.color }} />
-                        <h3 style={{ color: '#e0e0e0', fontSize: '24px', fontWeight: '700', letterSpacing: '0.5px' }}>
-                          VERDICT: {verification.verdict.toUpperCase()}
-                        </h3>
-                      </div>
-                    </div>
-                    <div style={{
-                      background: '#ff6b35',
-                      color: '#1a1a1a',
-                      padding: '16px',
-                      textAlign: 'center',
-                      minWidth: '120px',
-                    }}>
-                      <div style={{ fontSize: '10px', fontWeight: '600', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                        CONFIDENCE SCORE
-                      </div>
-                      <div style={{ fontSize: '28px', fontWeight: '700', fontFamily: 'monospace' }}>
-                        {verification.confidence}/100
-                      </div>
-                    </div>
-                  </div>
-
-                  <p style={{ color: '#b0b0b0', fontSize: '14px', lineHeight: '1.6', marginBottom: '20px' }}>
-                    {verification.analysis}
-                  </p>
-                </div>
-
-                {/* WHY THIS DECISION */}
-                <div style={{ marginBottom: '24px' }}>
-                  <h4 style={{ color: '#e0e0e0', fontSize: '12px', fontWeight: '600', letterSpacing: '1px', marginBottom: '12px' }}>
-                    WHY THIS DECISION?
-                  </h4>
-                  <div style={{ marginLeft: '16px' }}>
-                    {['Claim originates from low-trust platform with high history of manipulated media dissemination.',
-                      'No confirmation or acknowledgement from verified municipal or government emergency services.',
-                      'Syntactic and spreading patterns match known misinformation templates previously identified in this sector.'].map((item, i) => (
-                      <div key={i} style={{ display: 'flex', gap: '12px', marginBottom: '12px', fontSize: '13px', color: '#9a9a9a' }}>
-                        <span style={{ color: '#ff6b35', fontWeight: '700', minWidth: '20px' }}>{String(i + 1).padStart(2, '0')})</span>
-                        <span>{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* EVIDENCE PANEL */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
-                  {/* Left: Analysis */}
-                  <div>
-                    <h5 style={{ color: '#e0e0e0', fontSize: '12px', fontWeight: '600', letterSpacing: '1px', marginBottom: '12px' }}>
-                      ■ ANALYSIS REPORT
-                    </h5>
-                    <p style={{ color: '#9a9a9a', fontSize: '13px', lineHeight: '1.6', marginBottom: '16px' }}>
-                      The claim regarding "{verification.claim.substring(0, 40)}..." is likely {verification.verdict.toUpperCase()}. Initial keyword detection on the raw social media post, and visual evidence evaluation has resulted in a moderate level of structural failure claim validation.
-                    </p>
-                    <div style={{ background: '#1a1a1a', borderLeft: '3px solid #ff6b35', padding: '12px', fontSize: '12px', fontWeight: '600', color: '#e0e0e0', letterSpacing: '0.5px' }}>
-                      HIGH PROBABILITY OF COORDINATED MISINFORMATION OR LOCALIZED PANIC-TRIGGER
-                    </div>
-                  </div>
-
-                  {/* Right: Evidence */}
-                  <div>
-                    <h5 style={{ color: '#e0e0e0', fontSize: '12px', fontWeight: '600', letterSpacing: '1px', marginBottom: '16px' }}>
-                      ■ SOURCE EVIDENCE
-                    </h5>
-                    
-                    <div style={{ marginBottom: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10B981', fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
-                        <span>✓</span>
-                        <span>SUPPORTING SOURCES</span>
-                      </div>
-                      {verification.supportingSources.map((src, i) => (
-                        <div key={i} style={{ marginBottom: '8px' }}>
-                          <div style={{ color: '#89ceff', fontSize: '12px', fontWeight: '600' }}>{src.name}</div>
-                          <div style={{ color: '#6a6a6a', fontSize: '11px' }}>"{src.quote}"</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff6b35', fontSize: '12px', fontWeight: '600', marginBottom: '8px' }}>
-                        <span>✗</span>
-                        <span>MISSING / CONTRADICTING</span>
-                      </div>
-                      {verification.missingSources.map((src, i) => (
-                        <div key={i} style={{ color: '#6a6a6a', fontSize: '11px', marginBottom: '4px' }}>
-                          • {src}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* METADATA WARNING */}
-                {verification.hasExifWarning && (
-                  <div style={{ background: 'rgba(255, 107, 53, 0.1)', border: '1px solid #ff6b35', padding: '12px 16px', marginBottom: '24px' }}>
-                    <p style={{ color: '#ffb3ad', fontSize: '12px', fontWeight: '600' }}>
-                      ⚠ EXIF METADATA CONTRADICTS THE CLAIM TIMELINE
-                    </p>
-                  </div>
-                )}
-
-                {/* SOURCE NETWORK BUTTON */}
-                <button
-                  onClick={() => setShowGraphModal(showGraphModal === idx ? null : idx)}
+              <form onSubmit={handleAnalyze} style={{ marginBottom: '32px' }}>
+                <textarea
+                  value={claim}
+                  onChange={(e) => setClaim(e.target.value)}
+                  placeholder="Enter claim for verification..."
                   style={{
                     width: '100%',
-                    padding: '12px 16px',
-                    background: 'transparent',
-                    border: '1px solid #ff6b35',
+                    height: '120px',
+                    background: '#1a1a1a',
+                    border: '1px solid #3a3a3a',
                     color: '#e0e0e0',
-                    cursor: 'pointer',
+                    fontFamily: 'monospace',
+                    padding: '12px',
                     fontSize: '12px',
-                    fontWeight: '600',
-                    letterSpacing: '0.5px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    marginBottom: '24px',
+                    resize: 'none',
+                    marginBottom: '12px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                
+                <button
+                  type="submit"
+                  disabled={isLoading || !claim.trim()}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: isLoading || !claim.trim() ? '#3a3a3a' : '#1a1a1a',
+                    border: '1px solid #3a3a3a',
+                    color: isLoading || !claim.trim() ? '#6a6a6a' : '#e0e0e0',
+                    fontWeight: '700',
+                    fontSize: '12px',
+                    cursor: isLoading || !claim.trim() ? 'not-allowed' : 'pointer',
+                    letterSpacing: '1px',
                     transition: 'all 200ms',
                   }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#ff6b35', e.currentTarget.style.color = '#1a1a1a')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent', e.currentTarget.style.color = '#e0e0e0')}
+                  onMouseEnter={(e) => !isLoading && !claim.trim() ? null : (e.target.style.background = '#ff6b35', e.target.style.color = '#1a1a1a')}
+                  onMouseLeave={(e) => { e.target.style.background = '#1a1a1a'; e.target.style.color = '#e0e0e0'; }}
                 >
-                  <Network size={16} />
-                  <span>VIEW SOURCE NETWORK</span>
-                  <ChevronDown size={16} style={{ transform: showGraphModal === idx ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 200ms' }} />
+                  {isLoading ? '⟳ ANALYZING...' : 'ANALYZE CREDIBILITY ▶'}
                 </button>
+              </form>
+            </div>
 
-                {/* GRAPH */}
-                {showGraphModal === idx && (
-                  <div style={{ background: '#222a3d', padding: '24px', marginBottom: '24px', border: '1px solid #2d2d2d' }}>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={trustData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#3d3d3d" />
-                        <XAxis dataKey="time" stroke="#6a6a6a" />
-                        <YAxis stroke="#6a6a6a" />
-                        <Tooltip 
-                          contentStyle={{ background: '#1a1a1a', border: '1px solid #3d3d3d', borderRadius: '0px' }}
-                          labelStyle={{ color: '#e0e0e0' }}
-                        />
-                        <Line type="monotone" dataKey="reuters" stroke="#ff6b35" strokeWidth={2} dot={{ r: 3 }} />
-                        <Line type="monotone" dataKey="apnews" stroke="#89ceff" strokeWidth={2} dot={{ r: 3 }} />
-                        <Line type="monotone" dataKey="bbc" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
+            {/* TRUST REGISTRY */}
+            <div style={{ marginTop: 'auto' }}>
+              <h3 style={{ color: '#e0e0e0', fontSize: '14px', fontWeight: '700', margin: '0 0 12px 0', letterSpacing: '1px' }}>LIVE TRUST REGISTRY</h3>
+              <p style={{ color: '#6a6a6a', fontSize: '11px', margin: '0 0 16px 0', letterSpacing: '0.5px' }}>Domain credibility scores</p>
 
-                {/* ACTION BUTTONS */}
-                <div style={{ display: 'flex', gap: '12px', paddingTop: '16px', borderTop: '1px solid #3d3d3d' }}>
-                  {['MAIN', 'NEWS', 'RECENT'].map((label) => (
-                    <button
-                      key={label}
-                      style={{
-                        padding: '8px 16px',
-                        background: 'transparent',
-                        border: '1px solid #3d3d3d',
-                        color: '#9a9a9a',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        letterSpacing: '0.5px',
-                      }}
-                      onMouseEnter={(e) => (e.target.style.color = '#e0e0e0', e.target.style.borderColor = '#ff6b35')}
-                      onMouseLeave={(e) => (e.target.style.color = '#9a9a9a', e.target.style.borderColor = '#3d3d3d')}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+                {[
+                  { name: 'Reuters', score: 94 },
+                  { name: 'AP News', score: 92 },
+                  { name: 'BBC', score: 88 },
+                ].map((source, idx) => (
+                  <button
+                    key={idx}
+                    style={{
+                      padding: '12px',
+                      background: '#1a1a1a',
+                      border: '1px solid #3a3a3a',
+                      color: '#e0e0e0',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      letterSpacing: '0.5px',
+                      transition: 'all 200ms',
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = '#2d2d2d'}
+                    onMouseLeave={(e) => e.target.style.background = '#1a1a1a'}
+                  >
+                    <span>{source.name}</span>
+                    <span style={{ color: '#10B981', fontWeight: 'bold', fontFamily: 'monospace' }}>{source.score}%</span>
+                  </button>
+                ))}
               </div>
-            ))}
 
-            {verifications.length === 0 && !isLoading && (
-              <div style={{ textAlign: 'center', padding: '48px 0', color: '#6a6a6a' }}>
-                <p style={{ fontSize: '14px' }}>Submit a claim above to see verification results</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={trustData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2d2d2d" />
+                  <XAxis dataKey="time" tick={{ fill: '#6a6a6a', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#6a6a6a', fontSize: 10 }} domain={[70, 100]} />
+                  <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #3a3a3a', color: '#e0e0e0' }} />
+                  <Line type="monotone" dataKey="reuters" stroke="#10B981" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL - VERIFICATION FEED */}
+          <div style={{ padding: '32px', overflowY: 'auto', background: '#1a1a1a' }}>
+            <h3 style={{ color: '#e0e0e0', fontSize: '14px', fontWeight: '700', margin: '0 0 20px 0', letterSpacing: '1px' }}>INCIDENT VERIFICATION FEED</h3>
+
+            {verifications.length === 0 ? (
+              <div style={{ color: '#6a6a6a', fontSize: '12px', textAlign: 'center', paddingTop: '60px', letterSpacing: '0.5px' }}>
+                No verifications yet. Submit a claim to begin analysis.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {verifications.map((v) => (
+                  <div
+                    key={v.id}
+                    style={{
+                      border: '1px solid #3a3a3a',
+                      background: '#0f0f0f',
+                      padding: '20px',
+                    }}
+                  >
+                    {/* VERDICT HEADER */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                      <div style={{ fontWeight: '700', fontSize: '16px', color: v.color, letterSpacing: '1px' }}>
+                        {v.verdict === 'Error' ? '⚠ CONNECTION ERROR' : (
+                          v.verdict === 'TRUE' ? '🟢 VERIFIED' :
+                          v.verdict === 'FALSE' ? '🔴 DEBUNKED' :
+                          v.verdict === 'UNVERIFIED' ? '⚫ UNVERIFIED' :
+                          `• ${v.verdict.toUpperCase()}`
+                        )}
+                      </div>
+                      <div style={{ background: v.color, color: '#1a1a1a', padding: '4px 12px', fontSize: '11px', fontFamily: 'monospace', fontWeight: '700' }}>
+                        {v.confidence}/100
+                      </div>
+                    </div>
+
+                    {/* CLAIM BOX */}
+                    <div style={{ background: '#1a1a1a', padding: '12px', marginBottom: '16px', borderLeft: `2px solid ${v.color}` }}>
+                      <p style={{ margin: 0, color: '#b0b0b0', fontSize: '12px', fontFamily: 'monospace', lineHeight: '1.5' }}>
+                        "{v.claim}"
+                      </p>
+                    </div>
+
+                    {/* ANALYSIS */}
+                    <div style={{ marginBottom: '16px' }}>
+                      <h4 style={{ color: '#e0e0e0', fontSize: '12px', fontWeight: '700', margin: '0 0 8px 0', letterSpacing: '1px' }}>ANALYSIS</h4>
+                      <p style={{ color: '#a0a0a0', fontSize: '11px', margin: 0, lineHeight: '1.6' }}>
+                        {v.analysis}
+                      </p>
+                    </div>
+
+                    {/* EVIDENCE PANEL */}
+                    {v.verdict !== 'Error' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <h4 style={{ color: '#10B981', fontSize: '11px', fontWeight: '700', margin: '0 0 8px 0', letterSpacing: '1px' }}>✓ SUPPORTING</h4>
+                          {v.supportingSources.map((src, idx) => (
+                            <div key={idx} style={{ background: '#1a1a1a', padding: '8px', marginBottom: '4px', borderLeft: '2px solid #10B981' }}>
+                              <div style={{ color: '#10B981', fontSize: '10px', fontWeight: '700', letterSpacing: '0.5px' }}>{src.name}</div>
+                              <div style={{ color: '#8a8a8a', fontSize: '10px', marginTop: '2px', fontStyle: 'italic' }}>"{src.quote}"</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div>
+                          <h4 style={{ color: '#ff6b35', fontSize: '11px', fontWeight: '700', margin: '0 0 8px 0', letterSpacing: '1px' }}>✗ MISSING</h4>
+                          {v.missingSources.map((src, idx) => (
+                            <div key={idx} style={{ background: '#1a1a1a', padding: '8px', marginBottom: '4px', borderLeft: '2px solid #ff6b35', color: '#8a8a8a', fontSize: '10px' }}>
+                              {src}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ACTIONS */}
+                    {v.verdict !== 'Error' && (
+                      <div style={{ display: 'flex', gap: '12px', paddingTop: '12px', borderTop: '1px solid #2d2d2d', justifyContent: 'space-around' }}>
+                        <button style={{ background: 'transparent', border: 'none', color: '#6a6a6a', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', letterSpacing: '0.5px' }} onMouseEnter={(e) => e.target.style.color = '#e0e0e0'} onMouseLeave={(e) => e.target.style.color = '#6a6a6a'}>
+                          <Share2 size={12} /> SHARE
+                        </button>
+                        <button style={{ background: 'transparent', border: 'none', color: '#6a6a6a', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', letterSpacing: '0.5px' }} onMouseEnter={(e) => e.target.style.color = '#e0e0e0'} onMouseLeave={(e) => e.target.style.color = '#6a6a6a'}>
+                          <Flag size={12} /> REPORT
+                        </button>
+                        <button onClick={() => setShowGraphModal(v.id)} style={{ background: 'transparent', border: 'none', color: '#6a6a6a', cursor: 'pointer', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', letterSpacing: '0.5px' }} onMouseEnter={(e) => e.target.style.color = '#e0e0e0'} onMouseLeave={(e) => e.target.style.color = '#6a6a6a'}>
+                          <Network size={12} /> NETWORK
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };

@@ -8,10 +8,9 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base, get_db
-from app.models.models import Claim, Cluster, Evidence, Source
+from app.models.models import Claim, ClusterDB, Evidence, Source
 from app.api.schemas.claim import ClaimInput, ClaimOutput, EvidenceOutput
-from app.services.embedding_service import embedding_service
-from app.services.normalization_service import NormalizationService
+from app.services.verification_service import VerificationService
 
 # Initialize database
 Base.metadata.create_all(bind=engine)
@@ -23,7 +22,7 @@ app = FastAPI(
     description="Production-grade real-time crisis misinformation verification system"
 )
 
-# CORS middleware
+# CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -38,129 +37,173 @@ async def health_check():
     return {
         "status": "healthy",
         "app": settings.APP_NAME,
-        "version": settings.APP_VERSION
+        "version": settings.APP_VERSION,
+        "database": "connected"
     }
 
 @app.post("/analyze_claim", response_model=ClaimOutput)
 async def analyze_claim(
     request: ClaimInput,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
-    Main endpoint for claim analysis.
+    Main endpoint for claim analysis using dataset verification.
     
-    Pipeline:
-    1. Input validation & claim extraction
-    2. Claim normalization
-    3. Embedding & clustering (signal detection)
-    4. Trusted source retrieval
-    5. Evidence evaluation
-    6. Decision aggregation
-    7. Explanation generation
+    Process:
+    1. Input validation
+    2. Dataset search (similarity matching)
+    3. Verdict aggregation
+    4. Confidence calculation
+    5. Explanation generation
+    6. Source matching
     """
     
     start_time = time.time()
     claim_id = f"CLAIM-{uuid.uuid4().hex[:8].upper()}"
     
     try:
-        # Step 1: Normalize claim
-        normalized = NormalizationService.normalize_claim(request.text)
+        # Initialize verification service
+        verification_svc = VerificationService(db)
         
-        # Step 2: Generate embedding
-        embedding = embedding_service.generate_embedding(request.text)
+        # Analyze claim using dataset
+        verification_result = verification_svc.analyze_claim(request.text)
         
-        # Step 3: Create cluster (mock clustering)
-        cluster_id = f"CLUSTER-{uuid.uuid4().hex[:8].upper()}"
-        cluster = Cluster(
-            id=cluster_id,
-            source_count=1,
-            source_diversity=0.5,
-            time_density=0.7,
-            signal_score=0.65
-        )
-        db.add(cluster)
-        
-        # Step 4: Store claim in database
+        # Store claim in database
         db_claim = Claim(
             id=claim_id,
             text=request.text,
-            normalized_text=f"{normalized.event} in {normalized.location}",
-            source_name=request.source_name or "User",
-            source_platform=request.source_platform or "Direct",
-            cluster_id=cluster_id,
-            verdict="UNVERIFIED",
-            confidence=0.52,
-            signal_strength=0.65,
-            explanation="Claim originates from unverified source. Cross-verification with trusted sources in progress."
+            label=verification_result['label'],
+            confidence=verification_result['confidence'],
+            explanation=verification_result['explanation'],
+            source_name=request.source_name or "Direct Input",
+            source_platform=request.source_platform or "API"
         )
         db.add(db_claim)
         db.commit()
         
-        # Step 5: Mock evidence gathering
-        supporting_sources = [
-            EvidenceOutput(
-                source_name="Reuters",
-                relation="neutral",
-                confidence=0.6,
-                text="No confirmed reports from official sources yet."
-            )
-        ]
+        # Format sources for response
+        supporting_sources = []
+        if verification_result.get('supporting_sources'):
+            for src in verification_result['supporting_sources']:
+                supporting_sources.append(
+                    EvidenceOutput(
+                        source_name=src.get('name', 'Dataset Match'),
+                        relation="support",
+                        confidence=src.get('similarity', 0.8),
+                        text=src.get('quote', '')
+                    )
+                )
         
-        # Step 6: Build response
+        # Build response
         processing_time = time.time() - start_time
         
         return ClaimOutput(
             claim_id=claim_id,
             text=request.text,
-            verdict="UNVERIFIED",
-            confidence=0.52,
-            signal_strength=0.65,
-            explanation="Claim originates from unverified source. Similar patterns detected in database (2 related claims). Waiting for trusted source confirmation.",
-            supporting_sources=supporting_sources,
-            missing_sources=["AP News", "BBC", "Government Authority"],
+            verdict=verification_result['label'],
+            confidence=verification_result['confidence'],
+            signal_strength=verification_result['confidence'],
+            explanation=verification_result['explanation'],
+            supporting_sources=supporting_sources if supporting_sources else [
+                EvidenceOutput(
+                    source_name="Dataset",
+                    relation="neutral",
+                    confidence=0.5,
+                    text="Analysis complete. Review results above."
+                )
+            ],
+            missing_sources=verification_result.get('missing_sources', []),
             has_exif_warning=False,
-            processing_time=processing_time
+            processing_time=processing_time,
+            sources_checked=verification_result.get('sources_checked', 0)
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error analyzing claim: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis error: {str(e)}")
 
 @app.get("/claims/{claim_id}")
 async def get_claim(claim_id: str, db: Session = Depends(get_db)):
-    """Retrieve a claim analysis"""
-    db_claim = db.query(Claim).filter(Claim.id == claim_id).first()
-    if not db_claim:
-        raise HTTPException(status_code=404, detail="Claim not found")
-    return db_claim
+    """Retrieve a claim analysis by ID"""
+    try:
+        db_claim = db.query(Claim).filter(Claim.id == claim_id).first()
+        if not db_claim:
+            raise HTTPException(status_code=404, detail="Claim not found")
+        
+        return {
+            "id": db_claim.id,
+            "text": db_claim.text,
+            "label": db_claim.label,
+            "confidence": db_claim.confidence,
+            "explanation": db_claim.explanation,
+            "created_at": db_claim.created_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/sources")
 async def list_sources(db: Session = Depends(get_db)):
-    """List all trusted sources and their credibility scores"""
-    sources = db.query(Source).all()
-    return [
-        {
-            "id": s.id,
-            "name": s.name,
-            "trust_score": s.trust_score,
-            "correct_decisions": s.correct_decisions,
-            "total_decisions": s.total_decisions
+    """List all data sources and their credibility scores"""
+    try:
+        sources = db.query(Source).all()
+        return [
+            {
+                "id": s.id,
+                "name": s.name,
+                "trust_score": s.trust_score,
+                "verified_count": s.verified_count,
+                "error_count": s.error_count
+            }
+            for s in sources
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/statistics")
+async def get_statistics(db: Session = Depends(get_db)):
+    """Get system statistics"""
+    try:
+        total_claims = db.query(Claim).count()
+        true_claims = db.query(Claim).filter(Claim.label == 'TRUE').count()
+        false_claims = db.query(Claim).filter(Claim.label == 'FALSE').count()
+        unverified_claims = db.query(Claim).filter(Claim.label == 'UNVERIFIED').count()
+        
+        return {
+            "total_claims_analyzed": total_claims,
+            "verdicts": {
+                "TRUE": true_claims,
+                "FALSE": false_claims,
+                "UNVERIFIED": unverified_claims
+            },
+            "accuracy": {
+                "true_percentage": (true_claims / total_claims * 100) if total_claims > 0 else 0,
+                "false_percentage": (false_claims / total_claims * 100) if total_claims > 0 else 0
+            }
         }
-        for s in sources
-    ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/info")
 async def system_info():
-    """Return system configuration info"""
+    """Return system configuration and status"""
     return {
         "system_name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "embedding_model": settings.EMBEDDING_MODEL,
-        "nli_model": settings.NLI_MODEL,
-        "clustering_threshold": settings.CLUSTERING_THRESHOLD,
-        "trusted_sources": settings.TRUSTED_SOURCES
+        "description": "Real-Time Crisis Information Verification",
+        "verification_method": "Dataset Similarity Matching",
+        "endpoints": {
+            "health": "/health",
+            "analyze": "/analyze_claim",
+            "get_claim": "/claims/{claim_id}",
+            "sources": "/sources",
+            "stats": "/statistics",
+            "info": "/info",
+            "docs": "/docs"
+        }
     }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
