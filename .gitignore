@@ -91,3 +91,14 @@ out/
 # Misc
 .cache/
 .parcel-cache/
+
+# ===== MARKDOWN FILES =====
+# Only allow README.md at root and backend/README.md
+INTEGRATION_*.md
+DEPLOYMENT_*.md
+BACKEND_STATUS.md
+DASHBOARD_DOCS.md
+SETUP_GUIDE.md
+*_SUMMARY.md
+*_GUIDE.md
+*_CHECKLIST.md
