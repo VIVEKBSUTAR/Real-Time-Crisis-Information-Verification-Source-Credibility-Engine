@@ -11,9 +11,10 @@ import numpy as np
 
 # Import components
 from app.dataset_loader import load_dataset, get_dataset
-from app.core.semantic_pipeline import initialize_embedding_model, get_embedding
+from app.core.semantic_pipeline import initialize_embedding_model, get_embedding, get_embedding_model
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
+from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
 
 print("\n🚀 LIGHTWEIGHT MODE - Sentinel Protocol Backend")
 print("=" * 60)
@@ -32,11 +33,13 @@ except Exception as e:
 
 # Global dataset (loaded once, kept in memory)
 DATASET_READY = False
+ANALYSIS_READY = False
 dataset = None
+embedding_model_obj = None
 
 def ensure_dataset_loaded():
-    """Load dataset once"""
-    global DATASET_READY, dataset
+    """Load dataset once and initialize optimized analysis"""
+    global DATASET_READY, ANALYSIS_READY, dataset, embedding_model_obj
     
     if DATASET_READY:
         return True
@@ -46,8 +49,36 @@ def ensure_dataset_loaded():
         if load_dataset():
             dataset = get_dataset()
             DATASET_READY = True
-            items = list(dataset)
-            print(f"   ✅ Dataset loaded: {len(items)} claims\n")
+            
+            # Convert DatasetLoader to DataFrame if needed
+            if hasattr(dataset, '__iter__'):
+                import pandas as pd
+                items = list(dataset)
+                print(f"   ✅ Full dataset: {len(items)} claims")
+                
+                # Initialize optimized analysis with curated subset
+                model = get_embedding_model()
+                if model is not None:
+                    print("\n3️⃣  Initializing optimized analysis...")
+                    try:
+                        # Convert items to DataFrame format
+                        df_items = []
+                        for item in items:
+                            df_items.append({
+                                'Statement': item.get('statement', item.get('text', '')),
+                                'Text': item.get('text', ''),
+                                'Label': item.get('label', False),
+                                'Region': item.get('region', 'Unknown'),
+                                'News_Category': item.get('category', 'General'),
+                            })
+                        df = pd.DataFrame(df_items)
+                        initialize_analysis_dataset(df, model)
+                        ANALYSIS_READY = True
+                        print("   ✅ Optimized analysis ready")
+                    except Exception as e:
+                        print(f"   ⚠️  Analysis optimization failed: {e}")
+                        ANALYSIS_READY = False
+            
             return True
     except Exception as e:
         print(f"   ❌ Error: {e}\n")
@@ -233,34 +264,22 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     self.send_error_response(503, "Dataset not available")
                     return
                 
+                if not ANALYSIS_READY:
+                    self.send_error_response(503, "Analysis engine not ready")
+                    return
+                
                 print(f"📊 Analyzing: {claim[:50]}...")
                 
-                # Get embedding
-                user_embedding = get_embedding(claim)
-                
-                # Create simple embeddings for dataset (fast - no caching needed)
-                items = list(dataset)
-                dataset_embeddings = []
-                for item in items:
-                    try:
-                        emb = get_embedding(item.get('text', ''))
-                        dataset_embeddings.append(emb)
-                    except:
-                        dataset_embeddings.append(np.zeros(384))
-                
-                # Run pipeline
-                result = pipeline.process_claim(
-                    user_claim=claim,
-                    user_embedding=user_embedding,
-                    dataset_embeddings=dataset_embeddings,
-                    dataset_items=items
-                )
+                # Use OPTIMIZED vectorized analysis
+                result = analyze_claim_optimized(claim)
                 
                 response = {
                     "claim": claim,
-                    "verdict": result.get("verdict", "UNCERTAIN"),
-                    "confidence": float(result.get("confidence", 0.5)),
-                    "explanation": result.get("explanation", ""),
+                    "normalized_claim": result.get("normalized_claim"),
+                    "similar_claims": result.get("similar_claims", []),
+                    "credibility": result.get("credibility", {}),
+                    "analysis_time_seconds": result.get("analysis_time_seconds", 0),
+                    "dataset_used": "optimized_10k_curated",
                 }
                 
                 self.send_response(200)
