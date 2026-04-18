@@ -16,6 +16,7 @@ from app.core.semantic_pipeline import initialize_embedding_model, get_embedding
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
 from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
+from app.gemini_explainer import enrich_analysis_response
 
 # Custom HTTPServer with SO_REUSEADDR enabled (prevents "Address already in use")
 class ReuseAddrHTTPServer(HTTPServer):
@@ -278,23 +279,15 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     self.send_error_response(503, "Dataset not available")
                     return
                 
-                if not ANALYSIS_READY:
-                    self.send_error_response(503, "Analysis engine not ready")
-                    return
+                # Analysis will initialize on first use if needed
                 
                 print(f"📊 Analyzing: {claim[:50]}...")
                 
                 # Use OPTIMIZED vectorized analysis
                 result = analyze_claim_optimized(claim)
                 
-                response = {
-                    "claim": claim,
-                    "normalized_claim": result.get("normalized_claim"),
-                    "similar_claims": result.get("similar_claims", []),
-                    "credibility": result.get("credibility", {}),
-                    "analysis_time_seconds": result.get("analysis_time_seconds", 0),
-                    "dataset_used": "optimized_10k_curated",
-                }
+                # Enrich with Gemini explanations
+                response = enrich_analysis_response(result)
                 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
