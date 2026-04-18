@@ -55,8 +55,19 @@ export default function MainLayout() {
   const activeTitle = navItems.find((item) => item.id === activePage)?.label || 'Intelligence';
 
   return (
-    <div className="w-screen h-screen flex flex-col bg-slate-100">
-      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 text-slate-100 px-6 py-2.5 flex-shrink-0 shadow-md">
+    <div className="relative w-screen h-screen flex flex-col bg-slate-100 overflow-hidden">
+      <video
+        className="absolute inset-0 w-full h-full object-cover"
+        autoPlay
+        loop
+        muted
+        playsInline
+      >
+        <source src="/background.mp4" type="video/mp4" />
+      </video>
+      <div className="absolute inset-0 bg-slate-950/28" />
+
+      <div className="relative z-10 bg-gradient-to-r from-slate-950/95 via-slate-900/95 to-blue-950/95 text-slate-100 px-6 py-2.5 flex-shrink-0 shadow-md">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold bg-white/10 border border-white/20 px-3 py-1 rounded-full tracking-wide">LIVE</span>
@@ -66,7 +77,7 @@ export default function MainLayout() {
         </div>
       </div>
 
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex-shrink-0">
+      <div className="relative z-10 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-3 flex-shrink-0">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-5">
           <div className="flex items-center gap-3 min-w-[220px]">
             <button
@@ -100,8 +111,8 @@ export default function MainLayout() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className={`${sidebarOpen ? 'w-64' : 'w-0'} bg-white border-r border-slate-200 transition-all duration-300 overflow-y-auto flex-shrink-0 flex flex-col`}>
+      <div className="relative z-10 flex flex-1 overflow-hidden">
+        <div className={`${sidebarOpen ? 'w-64' : 'w-0'} bg-white/92 backdrop-blur-sm border-r border-slate-200 transition-all duration-300 overflow-y-auto flex-shrink-0 flex flex-col`}>
           <div className="p-4 border-b border-slate-200">
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
               <p className="text-lg font-bold text-slate-900 leading-5">Sentinel</p>
@@ -146,8 +157,8 @@ export default function MainLayout() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-slate-100">
-          <div className="px-8 pt-6 pb-2 border-b border-slate-200 bg-slate-100">
+        <div className="flex-1 overflow-y-auto bg-slate-100/70">
+          <div className="px-8 pt-6 pb-2 border-b border-slate-200 bg-slate-100/75 backdrop-blur-[1px]">
             <p className="text-[11px] uppercase tracking-[0.2em] font-bold text-indigo-600">Command Center</p>
             <h2 className="text-2xl font-bold text-slate-900 mt-1">{activeTitle}</h2>
           </div>

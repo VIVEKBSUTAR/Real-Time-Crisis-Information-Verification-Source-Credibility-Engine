@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle, XCircle, Clock, Bot, FileSearch2, Fingerprint, Database } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Bot } from 'lucide-react';
 
 export default function Intelligence() {
   const [claim, setClaim] = useState('');
@@ -26,7 +26,7 @@ export default function Intelligence() {
         verdict: data.verdict,
         confidence: Math.round(data.confidence * 100),
         explanation: data.explanation,
-        evidenceSummary: data.evidence_summary,
+        evidence_summary: data.evidence_summary,
         sources: data.sources || [],
       });
     } catch (error) {
@@ -49,11 +49,15 @@ export default function Intelligence() {
   };
 
   const verdictStyle = result ? getVerdictColor(result.verdict) : null;
+  const truncateText = (text, maxLength = 120) => {
+    if (!text) return '';
+    return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
+  };
 
   return (
     <div className="px-8 py-6">
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 space-y-6">
+        <div className="xl:col-span-3 space-y-6">
           <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
               <Bot size={18} className="text-indigo-600" />
@@ -106,60 +110,64 @@ export default function Intelligence() {
                     <p className="text-slate-700">{result.claim}</p>
                   </div>
 
-                  {result.explanation && (
-                    <div className="bg-white rounded-xl p-4 border border-slate-200 mb-4">
-                      <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">Audit Narrative</p>
-                      <p className="text-slate-700 text-sm leading-6">{result.explanation}</p>
-                    </div>
-                  )}
+                  <div className="analysis-container">
+                    <div className="analysis-grid">
+                      <div className="left-panel bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                        <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-slate-500 mb-2">AI Explanation</p>
+                        <p className="text-[15px] leading-7 text-slate-800">
+                          {result.explanation || 'Explanation is not available for this claim.'}
+                        </p>
 
-                  {result.evidenceSummary && (
-                    <div className="bg-white rounded-xl p-4 border border-slate-200 mb-4">
-                      <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">Evidence Summary</p>
-                      <p className="text-slate-700 text-sm leading-6">{result.evidenceSummary}</p>
-                    </div>
-                  )}
+                        <div className="mt-5 pt-4 border-t border-slate-200">
+                          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-slate-500 mb-2">Summary</p>
+                          <p className="text-sm leading-6 text-slate-600">
+                            {result.evidence_summary || 'No summary available from retrieved evidence.'}
+                          </p>
+                        </div>
+                      </div>
 
-                  {result.sources && result.sources.length > 0 && (
-                    <div className="bg-white rounded-xl p-4 border border-slate-200">
-                      <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-3">Evidence Panel</p>
-                      <div className="space-y-3">
-                        {result.sources.slice(0, 3).map((src, idx) => (
-                          <div key={`${idx}-${src.similarity || idx}`} className="rounded-lg border border-slate-200 p-3 bg-slate-50/60">
-                            <p className="text-sm text-slate-700">{src.text}</p>
-                          </div>
-                        ))}
+                      <div className="right-panel bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+                        <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-slate-500 mb-3">Evidence Panel</p>
+                        <div className="space-y-3">
+                          {(result.sources || []).slice(0, 5).map((src, idx) => {
+                            const relation = (src.relation || '').toLowerCase();
+                            const relationLabel = relation === 'supports' ? 'SUPPORTS' : 'CONTRADICTS';
+                            const relationClass = relation === 'supports'
+                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                              : 'bg-rose-100 text-rose-700 border-rose-200';
+                            const similarity = typeof src.similarity === 'number' ? src.similarity.toFixed(2) : '0.00';
+
+                            return (
+                              <div key={`${idx}-${src.text || idx}`} className="rounded-lg border border-slate-200 p-3 bg-slate-50/70">
+                                <p className="text-sm text-slate-700 leading-5 mb-3">{truncateText(src.text, 120)}</p>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium text-slate-500">Similarity: {similarity}</span>
+                                  <span className={`text-[11px] font-bold px-2 py-1 rounded-md border ${relationClass}`}>
+                                    {relationLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {(!result.sources || result.sources.length === 0) && (
+                            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50/70">
+                              <p className="text-sm text-slate-500">No evidence sources available for this claim.</p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        <div className="space-y-5">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-3">Command Widgets</p>
-            <div className="space-y-2">
-              <button className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 text-left hover:bg-slate-50 transition inline-flex items-center gap-2">
-                <FileSearch2 size={15} className="text-indigo-600" />
-                Pattern Scan
-              </button>
-              <button className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 text-left hover:bg-slate-50 transition inline-flex items-center gap-2">
-                <Fingerprint size={15} className="text-indigo-600" />
-                Source Signature
-              </button>
-              <button className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 text-left hover:bg-slate-50 transition inline-flex items-center gap-2">
-                <Database size={15} className="text-indigo-600" />
-                Dataset Integrity
-              </button>
-            </div>
-          </div>
-
+        <div className="xl:col-span-3 space-y-5">
           <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
             <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-3">System Metrics</p>
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="text-xs text-slate-500">Dataset Claims Indexed</p>
                 <p className="text-xl font-bold text-slate-900">26,232</p>
