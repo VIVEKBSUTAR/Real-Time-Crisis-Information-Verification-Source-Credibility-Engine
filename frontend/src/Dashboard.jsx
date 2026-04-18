@@ -78,7 +78,7 @@ export default function Dashboard() {
           <span className="text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded">Bridge collapse rumors trending</span>
           <span className="text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded">Dam burst claim flagged</span>
           <div className="ml-auto text-xs text-gray-600">
-            🔴 SYSTEM LIVE | Response <1.8s | 🔊
+            🔴 SYSTEM LIVE | Response {`<1.8s`} | 🔊
           </div>
         </div>
       </div>
@@ -110,7 +110,7 @@ export default function Dashboard() {
             </nav>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-600">Response <1.8s</span>
+            <span className="text-xs text-gray-600">Response {`<1.8s`}</span>
             <button className="p-2 hover:bg-gray-100 rounded-lg">
               <Settings size={20} className="text-gray-600" />
             </button>
@@ -205,7 +205,7 @@ export default function Dashboard() {
             {result && (
               <div className="grid grid-cols-3 gap-8 mb-8">
                 {/* Left: Verdict */}
-                <div className={`${verdictInfo.bg} rounded-lg p-6 border-l-4 border-${verdictInfo.color.split('-')[1]}-600`}>
+                <div className={`${verdictInfo.bg} rounded-lg p-6 border-l-4`} style={{borderLeftColor: verdictInfo.color.includes('green') ? '#16a34a' : verdictInfo.color.includes('red') ? '#dc2626' : '#ca8a04'}}>
                   <p className={`text-sm font-bold uppercase ${verdictInfo.color} mb-2`}>VERDICT</p>
                   <h3 className={`text-3xl font-bold ${verdictInfo.color} mb-4`}>{verdictInfo.text}</h3>
                   <p className="text-xs text-gray-600 mb-4">CROSS-VERIFICATION</p>
@@ -276,7 +276,7 @@ export default function Dashboard() {
                     <ul className="space-y-2 list-disc list-inside">
                       <li>Immediate viral acceleration without primary source link.</li>
                       <li>Image attached to the claim is a recycled file from a 2018 flood in a different province.</li>
-                      <li>Temporal analysis shows the "news" broke at 03:00 local time, with 90% of traffic originating from external VPN nodes.</li>
+                      <li>Temporal analysis shows the news broke at 03:00 local time, with 90% of traffic originating from external VPN nodes.</li>
                     </ul>
                   </div>
                 </div>
