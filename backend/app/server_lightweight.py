@@ -5,6 +5,7 @@ Uses dataset directly without expensive embedding operations for data endpoints
 
 import json
 import sys
+import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
@@ -318,6 +319,7 @@ def run_server(port=8000):
     
     server_address = ("", port)
     httpd = HTTPServer(server_address, LightweightHandler)
+    httpd.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
     try:
         httpd.serve_forever()
