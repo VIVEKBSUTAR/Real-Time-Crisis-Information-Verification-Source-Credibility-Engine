@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { Menu, X, LogOut, Settings, HelpCircle, Radar, ShieldAlert, Archive, BarChart3 } from 'lucide-react';
+import {
+  Menu,
+  X,
+  Radar,
+  ShieldAlert,
+  Archive,
+  BarChart3,
+  Search,
+  Bell,
+  UserCircle2,
+  Settings,
+  Plus,
+  HelpCircle,
+  ArrowRightFromLine,
+} from 'lucide-react';
 import Intelligence from './pages/Intelligence';
 import ActiveThreats from './pages/ActiveThreats';
 import Archived from './pages/Archived';
@@ -38,22 +52,12 @@ export default function MainLayout() {
     }
   };
 
-  return (
-    <div className="relative w-screen h-screen flex flex-col overflow-hidden">
-      <video
-        className="absolute inset-0 w-full h-full object-cover"
-        autoPlay
-        loop
-        muted
-        playsInline
-      >
-        <source src="/background.mp4" type="video/mp4" />
-      </video>
-      <div className="absolute inset-0 bg-slate-950/18" />
+  const activeTitle = navItems.find((item) => item.id === activePage)?.label || 'Intelligence';
 
-      {/* Top Banner */}
-      <div className="relative z-10 bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 text-slate-100 px-6 py-3 flex-shrink-0 shadow-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+  return (
+    <div className="w-screen h-screen flex flex-col bg-slate-100">
+      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 text-slate-100 px-6 py-2.5 flex-shrink-0 shadow-md">
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold bg-white/10 border border-white/20 px-3 py-1 rounded-full tracking-wide">LIVE</span>
             <span className="text-xs font-medium text-slate-200">System monitoring 26,232 claims</span>
@@ -62,61 +66,91 @@ export default function MainLayout() {
         </div>
       </div>
 
-      {/* Header */}
-      <div className="relative z-10 bg-white border-b border-slate-200 px-6 py-4 flex-shrink-0 shadow-sm">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex-shrink-0">
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-5">
+          <div className="flex items-center gap-3 min-w-[220px]">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="p-2 hover:bg-slate-100 rounded-lg lg:hidden text-slate-700"
             >
               {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
-            <h1 className="text-2xl font-bold text-slate-900">Sentinel Protocol</h1>
+            <h1 className="text-xl font-bold text-slate-900">Sentinel Protocol</h1>
           </div>
-          <div className="flex items-center gap-4">
+
+          <div className="flex-1 max-w-xl relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              placeholder="Search cross-platform intelligence..."
+              className="w-full bg-slate-100 border border-slate-200 rounded-lg py-2 pl-9 pr-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
             <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition">
-              <HelpCircle size={20} />
+              <Bell size={18} />
             </button>
             <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition">
-              <Settings size={20} />
+              <Settings size={18} />
             </button>
             <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-800 transition">
-              <LogOut size={20} />
+              <UserCircle2 size={20} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="relative z-10 flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div className={`${
-          sidebarOpen ? 'w-64' : 'w-0'
-        } bg-white/95 border-r border-slate-200 transition-all duration-300 overflow-y-auto flex-shrink-0`}>
-          <nav className="p-6 space-y-2">
+      <div className="flex flex-1 overflow-hidden">
+        <div className={`${sidebarOpen ? 'w-64' : 'w-0'} bg-white border-r border-slate-200 transition-all duration-300 overflow-y-auto flex-shrink-0 flex flex-col`}>
+          <div className="p-4 border-b border-slate-200">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <p className="text-lg font-bold text-slate-900 leading-5">Sentinel</p>
+              <p className="text-lg font-bold text-slate-900 leading-5">Protocol</p>
+              <p className="text-[10px] text-slate-500 tracking-widest mt-1 font-semibold">INTELLIGENCE OPS</p>
+            </div>
+          </div>
+
+          <nav className="p-4 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
-              <button
-                key={item.id}
-                onClick={() => handleNavigate(item.id)}
-                className={`w-full text-left px-4 py-3 rounded-xl font-medium transition flex items-center gap-3 ${
-                  activePage === item.id
-                    ? 'bg-indigo-50 text-indigo-700 border-l-4 border-indigo-600 shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-50 border-l-4 border-transparent'
-                }`}
-              >
-                <Icon size={18} />
-                {item.label}
-              </button>
+                <button
+                  key={item.id}
+                  onClick={() => handleNavigate(item.id)}
+                  className={`w-full text-left px-3 py-2.5 rounded-lg font-medium transition flex items-center gap-3 text-sm ${
+                    activePage === item.id
+                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                      : 'text-slate-700 hover:bg-slate-50 border border-transparent'
+                  }`}
+                >
+                  <Icon size={16} />
+                  {item.label}
+                </button>
               );
             })}
           </nav>
+
+          <div className="mt-auto p-4 border-t border-slate-200 space-y-2">
+            <button className="w-full inline-flex items-center justify-center gap-2 bg-indigo-700 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-indigo-800 transition">
+              <Plus size={16} />
+              New Report
+            </button>
+            <button className="w-full inline-flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg">
+              <HelpCircle size={15} />
+              Support
+            </button>
+            <button className="w-full inline-flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg">
+              <ArrowRightFromLine size={15} />
+              Sign Out
+            </button>
+          </div>
         </div>
 
-        {/* Page Content */}
-        <div className="flex-1 overflow-y-auto bg-slate-100/82 backdrop-blur-[1px]">
+        <div className="flex-1 overflow-y-auto bg-slate-100">
+          <div className="px-8 pt-6 pb-2 border-b border-slate-200 bg-slate-100">
+            <p className="text-[11px] uppercase tracking-[0.2em] font-bold text-indigo-600">Command Center</p>
+            <h2 className="text-2xl font-bold text-slate-900 mt-1">{activeTitle}</h2>
+          </div>
           {renderPage()}
         </div>
       </div>
