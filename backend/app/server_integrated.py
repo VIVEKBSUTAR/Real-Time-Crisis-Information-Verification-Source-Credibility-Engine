@@ -20,6 +20,7 @@ from app.dataset_loader import load_dataset, get_dataset
 from app.core.semantic_pipeline import semantic_pipeline, initialize_embedding_model
 from app.services.nli_service import nli_service
 from app.services.post_nli_service import post_nli_service
+from app.services.evidence_selection_agent import select_best_evidence
 
 # Initialize models on startup
 print("🚀 Initializing Sentinel Protocol Backend...")
@@ -134,6 +135,46 @@ class VerificationHandler(BaseHTTPRequestHandler):
                     # Run NLI on all pairs
                     print(f"   🧠 Running NLI inference on {len(nli_pairs)} pairs...")
                     nli_results = nli_service.evaluate_batch(nli_pairs)
+
+                    # ================================================================
+                    # STEP 2.5: EVIDENCE SELECTION AGENT
+                    # ================================================================
+                    nli_relation_to_evidence_relation = {
+                        "ENTAILMENT": "supports",
+                        "CONTRADICTION": "contradicts",
+                        "NEUTRAL": "neutral",
+                    }
+                    evidence_candidates = []
+                    for result in nli_results:
+                        nli_scores = result.get("nli_scores", {})
+                        relation = nli_service.get_relationship(nli_scores)
+                        evidence_candidates.append(
+                            {
+                                "text": result.get("premise", ""),
+                                "similarity": float(result.get("similarity", 0.0) or 0.0),
+                                "label": str(result.get("label", "UNKNOWN")),
+                                "relation": nli_relation_to_evidence_relation.get(relation, "neutral"),
+                            }
+                        )
+
+                    selected_evidence = select_best_evidence(evidence_candidates, top_n=3)
+                    selected_lookup = {
+                        (
+                            str(item.get("text", "")),
+                            float(item.get("similarity", 0.0) or 0.0),
+                        ): item
+                        for item in selected_evidence
+                    }
+                    filtered_nli_results = [
+                        result
+                        for result in nli_results
+                        if (
+                            str(result.get("premise", "")),
+                            float(result.get("similarity", 0.0) or 0.0),
+                        ) in selected_lookup
+                    ]
+                    if filtered_nli_results:
+                        nli_results = filtered_nli_results
                     
                     # ================================================================
                     # STEP 3: POST-NLI AGGREGATION
@@ -157,7 +198,21 @@ class VerificationHandler(BaseHTTPRequestHandler):
                             "source": result.get("premise", "")[:100],
                             "similarity": result.get("similarity", 0.0),
                             "label": str(result.get("label", "Unknown")),
-                            "nli_entailment": result.get("nli_scores", {}).get("entailment", 0.0)
+                            "nli_entailment": result.get("nli_scores", {}).get("entailment", 0.0),
+                            "relation": selected_lookup.get(
+                                (
+                                    str(result.get("premise", "")),
+                                    float(result.get("similarity", 0.0) or 0.0),
+                                ),
+                                {},
+                            ).get("relation", "neutral"),
+                            "score": selected_lookup.get(
+                                (
+                                    str(result.get("premise", "")),
+                                    float(result.get("similarity", 0.0) or 0.0),
+                                ),
+                                {},
+                            ).get("score", 0.0),
                         }
                         for result in nli_results[:3]
                     ]

@@ -9,11 +9,18 @@ trust scoring, alert system, and Bayesian learning.
 """
 
 import numpy as np
-from typing import List, Dict, Tuple, Optional
-from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
-from scipy.spatial.distance import pdist, squareform
-import json
+from typing import List, Dict
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import pdist
 from datetime import datetime
+
+from app.explainability import (
+    build_explainability_input,
+    generate_evidence_summary,
+    generate_explanation,
+)
+from app.services.evidence_selection_agent import select_best_evidence
+from app.services.nli_service import get_entailment_label
 
 # ============================================================================
 # STEP 1 & 2: INPUT + NORMALIZATION (Already have these)
@@ -159,14 +166,22 @@ class ClusterSignalExtractor:
         
         for cluster_id, info in cluster_info.items():
             cluster_size = info["size"]
-            member_labels = dataset_labels  # Would be indexed by member IDs
+            member_ids = info.get("members", [])
+            member_labels = [
+                dataset_labels[m]
+                for m in member_ids
+                if isinstance(m, int) and 0 <= m < len(dataset_labels)
+            ]
             
             # Signal 1: Size signal (more evidence = stronger)
             size_signal = min(1.0, cluster_size / 10)  # Saturate at 10 items
             
             # Signal 2: Consensus signal (0-1 based on label agreement)
-            # Assume we have labels for comparison
-            consensus_signal = 0.5  # Would calculate from actual labels
+            if member_labels:
+                true_ratio = float(np.mean(member_labels))
+                consensus_signal = float(max(true_ratio, 1.0 - true_ratio))
+            else:
+                consensus_signal = 0.5
             
             # Signal 3: Density signal (tight = stronger)
             density_signal = min(1.0, info["density"] / 2)  # Saturate at density=2
@@ -280,20 +295,39 @@ class TrustScoreCalculator:
 # STEP 6: NLI REASONING (already have this)
 # ============================================================================
 
-def calculate_nli_scores(cluster_info: Dict, user_claim: str) -> Dict:
-    """Calculate NLI scores for clusters"""
+def calculate_nli_scores(cluster_info: Dict, nli_results: List[Dict]) -> Dict:
+    """Calculate NLI scores for clusters from per-evidence NLI outputs."""
     nli_scores = {}
-    
+
     for cluster_id, info in cluster_info.items():
-        # Mock NLI: word overlap heuristic
-        user_words = set(user_claim.lower().split())
-        center_vector = info["center"]  # Would use actual NLI model here
-        
-        # Heuristic: assume cluster center represents the group
-        entailment_score = 0.5  # Would use actual NLI model
-        contradiction_score = 0.3
-        neutral_score = 0.2
-        
+        members = [
+            m for m in info.get("members", [])
+            if isinstance(m, int) and 0 <= m < len(nli_results)
+        ]
+        if not members:
+            nli_scores[cluster_id] = {
+                "entailment": 0.33,
+                "contradiction": 0.33,
+                "neutral": 0.34,
+            }
+            continue
+
+        entailment_score = float(
+            np.mean([nli_results[m].get("nli_scores", {}).get("entailment", 0.0) for m in members])
+        )
+        contradiction_score = float(
+            np.mean([nli_results[m].get("nli_scores", {}).get("contradiction", 0.0) for m in members])
+        )
+        neutral_score = float(
+            np.mean([nli_results[m].get("nli_scores", {}).get("neutral", 0.0) for m in members])
+        )
+
+        total = entailment_score + contradiction_score + neutral_score
+        if total > 0:
+            entailment_score /= total
+            contradiction_score /= total
+            neutral_score /= total
+
         nli_scores[cluster_id] = {
             "entailment": entailment_score,
             "contradiction": contradiction_score,
@@ -358,9 +392,9 @@ class VerdictGenerator:
         
         return {
             "verdict": verdict,
-            "confidence": min(0.95, confidence),
-            "entailment": norm_entailment,
-            "contradiction": norm_contradiction
+            "confidence": float(min(0.95, float(confidence))),
+            "entailment": float(norm_entailment),
+            "contradiction": float(norm_contradiction)
         }
 
 
@@ -464,7 +498,7 @@ class BayesianLearner:
     def __init__(self):
         self.prior_true = 0.5
         self.prior_false = 0.5
-        self.likelihood_evidence = {}
+        self.likelihood_evidence = []
     
     def update_from_feedback(
         self,
@@ -494,6 +528,29 @@ class BayesianLearner:
                 likelihood * self.prior_false + (1 - likelihood) * self.prior_true
             )
             self.prior_true = 1 - self.prior_false
+        self.likelihood_evidence.append(
+            {
+                "predicted_verdict": predicted_verdict,
+                "true_verdict": true_verdict,
+                "evidence_strength": float(evidence_strength),
+                "likelihood": float(likelihood),
+            }
+        )
+
+    def update_from_inference(self, predicted_verdict: str, confidence: float):
+        """
+        Online update when ground-truth is not yet available.
+        Uses confidence as evidence strength and treats current prediction
+        as provisional outcome to keep priors adaptive between feedback events.
+        """
+        if predicted_verdict not in {"VERIFIED", "FALSE"}:
+            return
+        mapped = predicted_verdict
+        self.update_from_feedback(
+            predicted_verdict=predicted_verdict,
+            true_verdict=mapped,
+            evidence_strength=float(max(0.0, min(1.0, confidence))),
+        )
     
     def get_current_priors(self) -> Dict:
         """Get current belief state"""
@@ -524,8 +581,7 @@ class AdvancedVerificationPipeline:
         self,
         user_claim: str,
         user_embedding: np.ndarray,
-        dataset_embeddings: List[np.ndarray],
-        dataset_items: List[Dict]
+        nli_results: List[Dict],
     ) -> Dict:
         """
         Full pipeline: Input → Normalization → Clustering → Trust → 
@@ -535,50 +591,119 @@ class AdvancedVerificationPipeline:
         # Step 1-2: Normalize
         normalized_claim = normalize_text(user_claim)
         
-        # Step 3: Cluster embeddings
-        claim_ids = list(range(len(dataset_embeddings)))
-        embedding_matrix = np.array(dataset_embeddings)
+        if not nli_results:
+            return {
+                "input_claim": user_claim,
+                "normalized_claim": normalize_text(user_claim),
+                "clustering": {"cluster_count": 0, "clusters": {}, "cluster_info": {}},
+                "signals": {},
+                "trust_scores": {},
+                "nli_scores": {},
+                "verdict": {"verdict": "UNCERTAIN", "confidence": 0.3, "entailment": 0.33, "contradiction": 0.33},
+                "alerts": self.alert_system.route_alerts([]),
+                "explanation": "No similar claims found for full-pipeline reasoning.",
+                "evidence_summary": "No evidence selected.",
+                "selected_evidence": [],
+                "bayesian_state": self.bayesian_learner.get_current_priors(),
+                "pipeline_status": "complete",
+            }
+
+        # Step 3: Embedding + clustering on NLI candidate premises
+        premise_embeddings = []
+        for row in nli_results:
+            emb = row.get("premise_embedding")
+            if emb is None:
+                emb = row.get("embedding")
+            if emb is None:
+                # Fallback: use user embedding for shape safety if upstream omitted
+                emb = user_embedding
+            premise_embeddings.append(np.array(emb, dtype=np.float32))
+
+        claim_ids = list(range(len(premise_embeddings)))
+        embedding_matrix = np.array(premise_embeddings)
         cluster_result = self.clusterer.cluster_embeddings(embedding_matrix, claim_ids)
         cluster_info = cluster_result["cluster_info"]
-        
+
+        dataset_items = [
+            {
+                "label": int(item.get("label", 0) or 0),
+                "source": item.get("source", "dataset"),
+            }
+            for item in nli_results
+        ]
+
         # Step 4: Extract cluster signals
         cluster_signals = self.signal_extractor.extract_signals(
             cluster_info,
             [item.get("label", 0.5) for item in dataset_items]
         )
-        
+
         # Step 5: Calculate trust scores
         trust_scores = self.trust_calculator.calculate_trust_score(
             cluster_info,
             cluster_signals,
             dataset_items
         )
-        
-        # Step 6: NLI reasoning
-        nli_scores = calculate_nli_scores(cluster_info, user_claim)
-        
+
+        # Step 6: NLI reasoning from model outputs
+        nli_scores = calculate_nli_scores(cluster_info, nli_results)
+
+        # Evidence Selection Agent (post-NLI, pre-decision)
+        relation_map = {
+            "ENTAILMENT": "supports",
+            "CONTRADICTION": "contradicts",
+            "NEUTRAL": "neutral",
+        }
+        evidence_candidates = []
+        for item in nli_results:
+            nli = item.get("nli_scores", {})
+            relation = relation_map.get(get_entailment_label(nli), "neutral")
+            evidence_candidates.append(
+                {
+                    "text": item.get("premise", ""),
+                    "similarity": float(item.get("similarity", 0.0) or 0.0),
+                    "label": "TRUE" if int(item.get("label", 0) or 0) == 1 else "FALSE",
+                    "relation": relation,
+                }
+            )
+        selected_evidence = select_best_evidence(evidence_candidates, top_n=3)
+
         # Step 7: Generate verdict
         verdict = self.verdict_generator.generate_verdict(
             trust_scores,
             nli_scores,
             cluster_info
         )
-        
+
         # Step 8: Generate and route alerts
         alerts = self.alert_system.generate_alerts(verdict, user_claim)
         routed_alerts = self.alert_system.route_alerts(alerts)
-        
-        # Step 9: Generate explanation
-        explanation = self.explanation_gen.generate_explanation(
-            verdict,
-            cluster_info,
-            trust_scores,
-            user_claim
+
+        # Step 9: Generate explanation from selected evidence
+        explain_input = build_explainability_input(
+            claim=user_claim,
+            verdict="TRUE" if verdict["verdict"] == "VERIFIED" else ("FALSE" if verdict["verdict"] == "FALSE" else "UNVERIFIED"),
+            confidence=float(verdict.get("confidence", 0.0) or 0.0),
+            sources=[
+                {
+                    "text": item.get("text", ""),
+                    "similarity": item.get("similarity", 0.0),
+                    "label": "TRUE" if item.get("relation") == "supports" else "FALSE",
+                    "relation": item.get("relation", "neutral"),
+                }
+                for item in selected_evidence
+            ],
         )
-        
-        # Step 10: Bayesian learning readiness (returns priors)
+        explanation = generate_explanation(explain_input)
+        evidence_summary = generate_evidence_summary(explain_input)
+
+        # Step 10: Bayesian update (online/provisional)
+        self.bayesian_learner.update_from_inference(
+            predicted_verdict=verdict.get("verdict", "UNCERTAIN"),
+            confidence=float(verdict.get("confidence", 0.0) or 0.0),
+        )
         current_priors = self.bayesian_learner.get_current_priors()
-        
+
         return {
             "input_claim": user_claim,
             "normalized_claim": normalized_claim,
@@ -593,7 +718,8 @@ class AdvancedVerificationPipeline:
             "verdict": verdict,
             "alerts": routed_alerts,
             "explanation": explanation,
+            "evidence_summary": evidence_summary,
+            "selected_evidence": selected_evidence,
             "bayesian_state": current_priors,
             "pipeline_status": "complete"
         }
-

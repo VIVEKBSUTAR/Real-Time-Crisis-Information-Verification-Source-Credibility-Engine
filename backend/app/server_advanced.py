@@ -12,8 +12,9 @@ import numpy as np
 
 # Import components
 from app.dataset_loader import load_dataset, get_dataset
-from app.core.semantic_pipeline import semantic_pipeline, initialize_embedding_model
+from app.core.semantic_pipeline import semantic_pipeline, initialize_embedding_model, get_embedding
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
+from app.services.nli_service import nli_service
 
 print("\n🚀 ADVANCED MODE - Sentinel Protocol Backend")
 print("=" * 60)
@@ -124,27 +125,32 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                 
                 print(f"📊 Processing claim: {claim[:50]}...")
                 
-                # Get user embedding
-                from app.core.semantic_pipeline import get_embedding
+                # Step 1: normalization + semantic retrieval (top-K)
+                nli_pairs, semantic_metadata = semantic_pipeline(
+                    user_claim=claim,
+                    dataset=dataset,
+                    k=5,
+                    similarity_threshold=0.4,
+                )
+
+                if not nli_pairs:
+                    self.send_error_response(404, "No similar claims found for advanced pipeline")
+                    return
+
+                # Step 2: NLI reasoning on retrieved pairs
+                nli_results = nli_service.evaluate_batch(nli_pairs)
+                for row in nli_results:
+                    row["source"] = "dataset"
+                    # Cache embeddings at the evidence level for clustering stage
+                    row["premise_embedding"] = get_embedding(row.get("premise", ""))
+
                 user_embedding = get_embedding(claim)
-                
-                # Get dataset embeddings
-                dataset_embeddings = []
-                for item in dataset:
-                    if "embedding" in item:
-                        dataset_embeddings.append(item["embedding"])
-                    else:
-                        # Compute embedding if not cached
-                        emb = get_embedding(item.get("text", ""))
-                        dataset_embeddings.append(emb)
-                        item["embedding"] = emb
-                
-                # Run advanced pipeline
+
+                # Run advanced pipeline end-to-end
                 result = pipeline.process_claim(
                     user_claim=claim,
                     user_embedding=user_embedding,
-                    dataset_embeddings=dataset_embeddings,
-                    dataset_items=dataset
+                    nli_results=nli_results,
                 )
                 
                 # Format response
@@ -157,7 +163,7 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                     # Clustering insights
                     "clustering": {
                         "cluster_count": result["clustering"]["cluster_count"],
-                        "total_similar_groups": result["clustering"]["cluster_count"]
+                        "total_similar_groups": result["clustering"]["cluster_count"],
                     },
                     
                     # Trust analysis
@@ -165,11 +171,11 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                         "average_trust_score": round(
                             np.mean([s["score"] for s in result["trust_scores"].values()]),
                             3
-                        ),
+                        ) if result["trust_scores"] else 0.0,
                         "consensus_strength": round(
                             np.mean([s["label_agreement"] for s in result["trust_scores"].values()]),
                             3
-                        )
+                        ) if result["trust_scores"] else 0.0,
                     },
                     
                     # NLI scores
@@ -187,6 +193,8 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                     
                     # Explanation
                     "explanation": result["explanation"],
+                    "evidence_summary": result.get("evidence_summary", ""),
+                    "selected_evidence": result.get("selected_evidence", []),
                     
                     # Bayesian learning state
                     "learning_state": result["bayesian_state"],
@@ -194,16 +202,20 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                     # Pipeline metadata
                     "pipeline": {
                         "mode": "advanced",
+                        "semantic_matches": len(nli_pairs),
+                        "top_similarity": semantic_metadata.get("top_similarity"),
                         "stages": [
                             "✅ normalization",
                             "✅ embedding",
                             "✅ clustering",
+                            "✅ cluster_signals",
                             "✅ trust_scoring",
                             "✅ nli_reasoning",
+                            "✅ evidence_selection",
                             "✅ verdict_generation",
                             "✅ alert_routing",
                             "✅ explanation",
-                            "✅ bayesian_state"
+                            "✅ bayesian_update"
                         ]
                     },
                     

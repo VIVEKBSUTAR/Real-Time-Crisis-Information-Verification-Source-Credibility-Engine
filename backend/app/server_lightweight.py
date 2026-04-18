@@ -6,16 +6,23 @@ Uses dataset directly without expensive embedding operations for data endpoints
 import json
 import sys
 import socket
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
 
 # Import components
 from app.dataset_loader import load_dataset, get_dataset
-from app.core.semantic_pipeline import initialize_embedding_model, get_embedding, get_embedding_model
+from app.core.semantic_pipeline import (
+    initialize_embedding_model,
+    get_embedding,
+    get_embedding_model,
+    semantic_pipeline,
+)
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
-from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
+from app.optimized_analysis import initialize_analysis_dataset
+from app.services.nli_service import nli_service
 from app.explainability import (
     build_explainability_input,
     generate_evidence_summary,
@@ -273,35 +280,64 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     return
                 
                 print(f"📊 Analyzing: {claim[:50]}...")
-                
-                # Use OPTIMIZED vectorized analysis
-                result = analyze_claim_optimized(claim)
 
-                if result.get("error"):
-                    self.send_error_response(503, result["error"])
+                start_time = time.time()
+
+                # Full pipeline routing:
+                # Input -> Normalization -> Embedding+Clustering -> Cluster Signals
+                # -> Trust -> NLI -> Decision -> Alerts -> Explanation -> Bayesian
+                nli_pairs, semantic_metadata = semantic_pipeline(
+                    user_claim=claim,
+                    dataset=dataset,
+                    k=5,
+                    similarity_threshold=0.4,
+                )
+                if not nli_pairs:
+                    response = {
+                        "verdict": "UNVERIFIED",
+                        "confidence": 0.3,
+                        "explanation": "No similar claims found for full-pipeline reasoning.",
+                        "evidence_summary": "No evidence selected.",
+                        "sources": [],
+                        "claim": claim,
+                        "original_claim": claim,
+                        "evidence": [],
+                        "normalized_claim": semantic_metadata.get("normalized_claim"),
+                        "similar_claims": [],
+                        "credibility": {"verdict": "UNCERTAIN", "confidence": 0.3},
+                        "analysis_time_seconds": round(time.time() - start_time, 3),
+                        "dataset_used": "full_pipeline_topk",
+                        "pipeline": {"mode": "full_advanced", "semantic_matches": 0},
+                    }
+                    self.send_json_response(200, response)
                     return
 
-                credibility = result.get("credibility", {}) or {}
-                raw_verdict = str(credibility.get("verdict", "")).upper()
-                if "TRUE" in raw_verdict:
-                    verdict = "TRUE"
-                elif "FALSE" in raw_verdict:
-                    verdict = "FALSE"
-                else:
-                    verdict = "UNVERIFIED"
+                nli_results = nli_service.evaluate_batch(nli_pairs)
+                for row in nli_results:
+                    row["source"] = "dataset"
+                    row["premise_embedding"] = get_embedding(row.get("premise", ""))
 
-                confidence = float(credibility.get("confidence", 0.5))
+                advanced_result = get_pipeline().process_claim(
+                    user_claim=claim,
+                    user_embedding=get_embedding(claim),
+                    nli_results=nli_results,
+                )
 
-                similar_claims = result.get("similar_claims", []) or []
-                sources = []
-                for item in similar_claims[:5]:
-                    sources.append(
-                        {
-                            "text": item.get("statement", ""),
-                            "similarity": item.get("similarity", 0.0),
-                            "label": "TRUE" if str(item.get("label", "")).lower() == "true" else "FALSE",
-                        }
-                    )
+                verdict_raw = str(advanced_result.get("verdict", {}).get("verdict", "UNCERTAIN")).upper()
+                verdict = "TRUE" if verdict_raw == "VERIFIED" else ("FALSE" if verdict_raw == "FALSE" else "UNVERIFIED")
+                confidence = float(advanced_result.get("verdict", {}).get("confidence", 0.5) or 0.5)
+
+                selected_evidence = advanced_result.get("selected_evidence", []) or []
+                sources = [
+                    {
+                        "text": item.get("text", ""),
+                        "similarity": float(item.get("similarity", 0.0) or 0.0),
+                        "label": "TRUE" if item.get("relation") == "supports" else "FALSE",
+                        "relation": item.get("relation", "neutral"),
+                        "score": float(item.get("score", 0.0) or 0.0),
+                    }
+                    for item in selected_evidence
+                ]
 
                 explainability_data = build_explainability_input(
                     claim=claim,
@@ -309,8 +345,8 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     confidence=confidence,
                     sources=sources,
                 )
-                explanation = generate_explanation(explainability_data)
-                evidence_summary = generate_evidence_summary(explainability_data)
+                explanation = advanced_result.get("explanation") or generate_explanation(explainability_data)
+                evidence_summary = advanced_result.get("evidence_summary") or generate_evidence_summary(explainability_data)
 
                 response = {
                     "verdict": verdict,
@@ -321,11 +357,30 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     "claim": claim,
                     "original_claim": claim,
                     "evidence": explainability_data["evidence"],
-                    "normalized_claim": result.get("normalized_claim"),
-                    "similar_claims": similar_claims,
-                    "credibility": credibility,
-                    "analysis_time_seconds": result.get("analysis_time_seconds", 0),
-                    "dataset_used": "optimized_10k_curated",
+                    "normalized_claim": advanced_result.get("normalized_claim", semantic_metadata.get("normalized_claim")),
+                    "similar_claims": [
+                        {
+                            "statement": row.get("premise", ""),
+                            "similarity": float(row.get("similarity", 0.0) or 0.0),
+                            "label": "true" if int(row.get("label", 0) or 0) == 1 else "false",
+                        }
+                        for row in nli_results
+                    ],
+                    "credibility": {
+                        "verdict": verdict_raw,
+                        "confidence": confidence,
+                        "entailment": float(advanced_result.get("verdict", {}).get("entailment", 0.0) or 0.0),
+                        "contradiction": float(advanced_result.get("verdict", {}).get("contradiction", 0.0) or 0.0),
+                    },
+                    "analysis_time_seconds": round(time.time() - start_time, 3),
+                    "dataset_used": "full_pipeline_topk_clustered",
+                    "pipeline": {
+                        "mode": "full_advanced",
+                        "semantic_matches": len(nli_pairs),
+                        "cluster_count": advanced_result.get("clustering", {}).get("cluster_count", 0),
+                        "alerts": len(advanced_result.get("alerts", {}).get("logged", [])),
+                        "bayesian_state": advanced_result.get("bayesian_state", {}),
+                    },
                 }
                 
                 if self.send_json_response(200, response):

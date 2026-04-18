@@ -15,6 +15,8 @@ Trusted Source Retrieval
     ↓
 Evidence Evaluation (NLI)
     ↓
+Evidence Selection Agent (noise filtering + diversity)
+    ↓
 Multi-Source Aggregation
     ↓
 Decision Engine (TRUE/FALSE/UNCERTAIN + confidence)

@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List
 
+from app.services.evidence_selection_agent import select_best_evidence
+
 try:
     import google.generativeai as genai
 except Exception:  # pragma: no cover
@@ -50,14 +52,34 @@ def _relation_for_evidence(label: str) -> str:
 
 
 def _select_top_evidence(evidence: List[Dict[str, Any]], limit: int = _MAX_EVIDENCE) -> List[Dict[str, Any]]:
-    ranked = []
-    for item in evidence or []:
-        similarity = float(item.get("similarity", 0.0) or 0.0)
-        relation = str(item.get("relation", "")).lower()
-        relation_weight = 1.0 if relation in {"supports", "contradicts"} else 0.0
-        ranked.append((similarity, relation_weight, item))
-    ranked.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [row[2] for row in ranked[:limit]]
+    if not evidence:
+        return []
+
+    selected = select_best_evidence(evidence, top_n=limit)
+    if not selected:
+        return []
+
+    chosen: List[Dict[str, Any]] = []
+    used_indexes = set()
+    for target in selected:
+        target_key = (
+            str(target.get("text", "")),
+            float(target.get("similarity", 0.0) or 0.0),
+            str(target.get("relation", "neutral")).lower(),
+        )
+        for idx, item in enumerate(evidence):
+            if idx in used_indexes:
+                continue
+            item_key = (
+                str(item.get("text", "")),
+                float(item.get("similarity", 0.0) or 0.0),
+                str(item.get("relation", "neutral")).lower(),
+            )
+            if item_key == target_key:
+                chosen.append(item)
+                used_indexes.add(idx)
+                break
+    return chosen[:limit]
 
 
 def _format_evidence_lines(evidence: List[Dict[str, Any]]) -> str:

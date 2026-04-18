@@ -1,4 +1,4 @@
-"""Entry point for backend server"""
+"""Entry point for backend server."""
 import sys
 import os
 
