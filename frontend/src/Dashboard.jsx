@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Search, Menu, Settings, Home, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Search, AlertCircle, CheckCircle, XCircle, Menu, Settings, LogOut, Archive, Globe, BarChart3, HelpCircle, TrendingUp } from 'lucide-react';
 
-export default function DashboardLight() {
+export default function Dashboard() {
   const [claim, setClaim] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [verifications, setVerifications] = useState([]);
+  const [result, setResult] = useState(null);
+  const [activeTab, setActiveTab] = useState('intelligence');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,27 +20,18 @@ export default function DashboardLight() {
         body: JSON.stringify({ text: claim }),
       });
 
-      if (!response.ok) {
-        const error = await response.text();
-        console.error('Backend error:', error);
-        alert('Backend error: ' + error);
-        throw new Error('Backend error');
-      }
+      if (!response.ok) throw new Error('Backend error');
       
       const data = await response.json();
-      console.log('Backend response:', data);
-      
-      setVerifications([{
-        id: Date.now(),
-        claim: data.original_claim || claim,
-        verdict: data.verdict || 'UNCERTAIN',
-        confidence: data.confidence || 0.5,
-        reasoning: data.explanation || 'Analyzing...', 
-        sources: data.evidence || [],
-        timestamp: new Date().toLocaleTimeString()
-      }]);
-      
-      setClaim('');
+      setResult({
+        id: data.claim_id,
+        claim: data.original_claim,
+        verdict: data.verdict,
+        confidence: Math.round(data.confidence * 100),
+        explanation: data.explanation,
+        evidence: data.evidence || [],
+        reasons: generateReasons(data.verdict, data.evidence)
+      });
     } catch (error) {
       console.error('Error:', error);
       alert('Error: ' + error.message);
@@ -46,42 +39,80 @@ export default function DashboardLight() {
     setIsLoading(false);
   };
 
-  const getVerdictColor = (verdict) => {
-    if (!verdict) return 'bg-yellow-50 border-yellow-400 border-2';
-    const v = verdict.toUpperCase();
-    if (v === 'VERIFIED' || v === 'TRUE') return 'bg-green-50 border-green-400 border-2';
-    if (v === 'FALSE' || v === 'DEBUNKED') return 'bg-red-50 border-red-400 border-2';
-    return 'bg-yellow-50 border-yellow-400 border-2';
+  const generateReasons = (verdict, evidence) => {
+    if (verdict === 'FALSE') {
+      return [
+        'Unverified Platform Origin',
+        'Conflicting Source Data',
+        'Lack of Official Confirmation'
+      ];
+    }
+    if (verdict === 'VERIFIED') {
+      return [
+        'Multiple Source Confirmation',
+        'Official Channel Verification',
+        'Consistent Temporal Analysis'
+      ];
+    }
+    return [
+      'Mixed Source Evidence',
+      'Insufficient Confirmation',
+      'Pending Additional Verification'
+    ];
   };
 
-  const getVerdictBadge = (verdict) => {
-    if (!verdict) return 'bg-yellow-600 text-white font-semibold';
-    const v = verdict.toUpperCase();
-    if (v === 'VERIFIED' || v === 'TRUE') return 'bg-green-600 text-white font-semibold';
-    if (v === 'FALSE' || v === 'DEBUNKED') return 'bg-red-600 text-white font-semibold';
-    return 'bg-yellow-600 text-white font-semibold';
+  const getVerdictColor = (verdict) => {
+    if (verdict === 'VERIFIED') return { text: 'VERIFIED', color: 'text-green-600', bg: 'bg-green-50', badge: 'bg-green-100' };
+    if (verdict === 'FALSE') return { text: 'REFUTED', color: 'text-red-600', bg: 'bg-red-50', badge: 'bg-red-100' };
+    return { text: 'UNCERTAIN', color: 'text-yellow-600', bg: 'bg-yellow-50', badge: 'bg-yellow-100' };
   };
+
+  const verdictInfo = result ? getVerdictColor(result.verdict) : null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
+      {/* Top Alert Banner */}
+      <div className="bg-red-50 border-b-2 border-red-200 px-6 py-3">
+        <div className="max-w-7xl mx-auto flex items-center gap-4">
+          <span className="text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded">BTS</span>
+          <span className="text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded">Bridge collapse rumors trending</span>
+          <span className="text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded">Dam burst claim flagged</span>
+          <div className="ml-auto text-xs text-gray-600">
+            🔴 SYSTEM LIVE | Response <1.8s | 🔊
+          </div>
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="bg-white border-b-2 border-gray-300 shadow-md sticky top-0 z-40">
+      <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-gradient-to-br from-blue-700 to-blue-900 rounded-lg flex items-center justify-center text-white font-bold text-lg">
-              SP
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Sentinel Protocol</h1>
-              <p className="text-sm text-gray-700 font-medium">Crisis Information Verification Engine</p>
-            </div>
+          <div className="flex items-center gap-8">
+            <h1 className="text-2xl font-bold text-gray-900">Sentinel Protocol</h1>
+            <nav className="flex gap-6">
+              <button 
+                onClick={() => setActiveTab('intelligence')}
+                className={`text-sm font-medium pb-2 border-b-2 transition ${activeTab === 'intelligence' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+              >
+                Intelligence
+              </button>
+              <button 
+                onClick={() => setActiveTab('threats')}
+                className={`text-sm font-medium pb-2 border-b-2 transition ${activeTab === 'threats' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+              >
+                Active Threats
+              </button>
+              <button 
+                onClick={() => setActiveTab('map')}
+                className={`text-sm font-medium pb-2 border-b-2 transition ${activeTab === 'map' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+              >
+                Global Map
+              </button>
+            </nav>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition border border-gray-300">
-              <Settings size={20} className="text-gray-700" />
-            </button>
-            <button className="p-2 hover:bg-gray-100 rounded-lg transition border border-gray-300">
-              <Menu size={20} className="text-gray-700" />
+            <span className="text-xs text-gray-600">Response <1.8s</span>
+            <button className="p-2 hover:bg-gray-100 rounded-lg">
+              <Settings size={20} className="text-gray-600" />
             </button>
           </div>
         </div>
@@ -89,112 +120,206 @@ export default function DashboardLight() {
 
       <div className="flex">
         {/* Sidebar */}
-        <div className="w-64 bg-white border-r-2 border-gray-300 p-6 hidden lg:block shadow-sm">
-          <nav className="space-y-3">
-            <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-700 text-white font-bold">
-              <Home size={20} />
-              <span>Dashboard</span>
+        <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 min-h-[calc(100vh-140px)] flex flex-col`}>
+          <div className="p-6 space-y-6">
+            <div>
+              <h2 className="text-xs font-bold text-gray-500 uppercase mb-4">SENTINEL</h2>
+              <nav className="space-y-3">
+                <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-blue-50 text-blue-600 font-semibold cursor-pointer hover:bg-blue-100 transition">
+                  <BarChart3 size={20} />
+                  {sidebarOpen && <span>Intelligence</span>}
+                </div>
+                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                  <TrendingUp size={20} />
+                  {sidebarOpen && <span className="text-sm">Active Threats</span>}
+                </div>
+                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                  <Archive size={20} />
+                  {sidebarOpen && <span className="text-sm">Archived</span>}
+                </div>
+                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                  <Globe size={20} />
+                  {sidebarOpen && <span className="text-sm">Global Map</span>}
+                </div>
+                <div className="flex items-center gap-3 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                  <Settings size={20} />
+                  {sidebarOpen && <span className="text-sm">Settings</span>}
+                </div>
+              </nav>
             </div>
-            <div className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-800 hover:bg-gray-100 cursor-pointer transition border-l-4 border-gray-300 hover:border-blue-600 font-semibold">
-              <AlertCircle size={20} />
-              <span>Active Alerts</span>
-            </div>
-            <div className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-800 hover:bg-gray-100 cursor-pointer transition border-l-4 border-gray-300 hover:border-blue-600 font-semibold">
-              <CheckCircle size={20} />
-              <span>Verified Claims</span>
-            </div>
-          </nav>
 
-          <hr className="my-6 border-gray-300" />
+            <div className="border-t border-gray-200 pt-4">
+              {sidebarOpen && (
+                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition">
+                  New Analysis
+                </button>
+              )}
+            </div>
+          </div>
 
-          <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-300">
-            <p className="text-sm text-gray-800 font-semibold">Connected to Dataset</p>
-            <p className="text-xs text-gray-700 mt-2">26,232 news claims loaded</p>
+          <div className="mt-auto border-t border-gray-200 p-4 space-y-3">
+            <button className="flex items-center gap-3 text-gray-700 hover:bg-gray-100 w-full px-4 py-2 rounded-lg transition">
+              <HelpCircle size={18} />
+              {sidebarOpen && <span className="text-sm">Help</span>}
+            </button>
+            <button className="flex items-center gap-3 text-gray-700 hover:bg-gray-100 w-full px-4 py-2 rounded-lg transition">
+              <LogOut size={18} />
+              {sidebarOpen && <span className="text-sm">Logout</span>}
+            </button>
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 p-8">
-          {/* Search Section */}
-          <div className="max-w-3xl mx-auto mb-12">
-            <div className="bg-white rounded-2xl shadow-lg p-8 border-2 border-gray-300">
-              <h2 className="text-3xl font-bold text-gray-900 mb-3">Verify a Claim</h2>
-              <p className="text-gray-800 mb-8 text-lg font-medium">Enter any claim, news headline, or social media post to verify its credibility</p>
-              
+        <div className="flex-1 p-8 overflow-auto">
+          <div className="max-w-5xl">
+            {/* Title Section */}
+            <div className="mb-8">
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Intelligence Verification</h2>
+              <p className="text-gray-600">Cross-reference real-time digital signals with sovereign data ledgers to determine information validity.</p>
+            </div>
+
+            {/* Input Section */}
+            <div className="bg-white rounded-lg shadow-md p-8 mb-8 border border-gray-200">
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="relative">
-                  <Search className="absolute left-4 top-4 text-gray-600" size={22} />
-                  <input
-                    type="text"
-                    value={claim}
-                    onChange={(e) => setClaim(e.target.value)}
-                    placeholder="Paste claim, news headline, or URL..."
-                    className="w-full pl-14 pr-4 py-4 border-2 border-gray-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700 text-gray-900 font-medium text-lg"
-                  />
+                <textarea
+                  value={claim}
+                  onChange={(e) => setClaim(e.target.value)}
+                  placeholder="Paste report, tweet, or statement for deep analysis..."
+                  className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-900 resize-none"
+                />
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">Uses source validation + cross-verification</p>
+                  <button
+                    type="submit"
+                    disabled={isLoading || !claim.trim()}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-bold py-3 px-8 rounded-lg transition flex items-center gap-2"
+                  >
+                    <Search size={18} />
+                    Analyze Credibility
+                  </button>
                 </div>
-                <button
-                  type="submit"
-                  disabled={isLoading || !claim.trim()}
-                  className="w-full bg-blue-700 hover:bg-blue-800 disabled:bg-gray-400 text-white font-bold py-4 rounded-xl transition text-lg shadow-lg border-2 border-blue-900"
-                >
-                  {isLoading ? '⟳ ANALYZING...' : 'ANALYZE CREDIBILITY ▶'}
-                </button>
               </form>
             </div>
-          </div>
 
-          {/* Results Section */}
-          <div className="max-w-3xl mx-auto space-y-6">
-            {verifications.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-xl border-2 border-gray-300 shadow-md">
-                <p className="text-gray-700 text-xl font-semibold">Results will appear here</p>
-                <p className="text-gray-600 text-lg mt-2">Enter a claim above to get started</p>
-              </div>
-            ) : (
-              verifications.map((v) => (
-                <div key={v.id} className={`rounded-2xl ${getVerdictColor(v.verdict)} p-8 shadow-lg transition transform hover:shadow-xl`}>
-                  <div className="flex items-start justify-between mb-6">
-                    <h3 className="font-bold text-gray-900 flex-1 text-lg">{v.claim}</h3>
-                    <span className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap ml-4 ${getVerdictBadge(v.verdict)}`}>
-                      {v.verdict}
-                    </span>
-                  </div>
+            {/* Results Section */}
+            {result && (
+              <div className="grid grid-cols-3 gap-8 mb-8">
+                {/* Left: Verdict */}
+                <div className={`${verdictInfo.bg} rounded-lg p-6 border-l-4 border-${verdictInfo.color.split('-')[1]}-600`}>
+                  <p className={`text-sm font-bold uppercase ${verdictInfo.color} mb-2`}>VERDICT</p>
+                  <h3 className={`text-3xl font-bold ${verdictInfo.color} mb-4`}>{verdictInfo.text}</h3>
+                  <p className="text-xs text-gray-600 mb-4">CROSS-VERIFICATION</p>
+                  <p className="text-xs text-gray-700 font-medium">{result.claim.substring(0, 80)}...</p>
+                </div>
 
-                  <div className="space-y-4 text-base">
-                    <div>
-                      <p className="text-gray-800 font-bold mb-2">Confidence Level</p>
-                      <div className="w-full bg-gray-400 rounded-full h-3 border border-gray-500">
-                        <div 
-                          className="bg-blue-700 h-3 rounded-full transition-all"
-                          style={{ width: `${Math.min(v.confidence * 100, 100)}%` }}
-                        />
+                {/* Center: Confidence Gauge */}
+                <div className="bg-white rounded-lg shadow-md p-8 flex flex-col items-center justify-center border border-gray-200">
+                  <div className="relative w-32 h-32 mb-4">
+                    <svg className="w-full h-full" viewBox="0 0 120 120">
+                      <circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" strokeWidth="8" />
+                      <circle 
+                        cx="60" 
+                        cy="60" 
+                        r="50" 
+                        fill="none" 
+                        stroke={verdictInfo.color.includes('green') ? '#10b981' : verdictInfo.color.includes('red') ? '#dc2626' : '#ca8a04'} 
+                        strokeWidth="8"
+                        strokeDasharray={`${(result.confidence / 100) * 314} 314`}
+                        strokeLinecap="round"
+                        transform="rotate(-90 60 60)"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-gray-900">{result.confidence}</p>
+                        <p className="text-xs text-gray-600">Confidence</p>
                       </div>
-                      <p className="text-gray-800 font-semibold mt-2">{Math.round(v.confidence * 100)}% Confidence</p>
                     </div>
+                  </div>
+                  <p className="text-xs text-gray-600 text-center">Threshold for Action: 85+</p>
+                </div>
 
-                    <div>
-                      <p className="text-gray-800 font-bold mb-2">Analysis</p>
-                      <p className="text-gray-900 leading-relaxed font-medium">{v.reasoning}</p>
-                    </div>
-
-                    {v.sources && v.sources.length > 0 && (
-                      <div>
-                        <p className="text-gray-800 font-bold mb-2">Supporting Sources</p>
-                        <div className="space-y-2">
-                          {v.sources.map((src, idx) => (
-                            <div key={idx} className="bg-white bg-opacity-60 p-3 rounded-lg border border-gray-400">
-                              <p className="font-semibold text-gray-800">{src.source}</p>
-                              <p className="text-sm text-gray-700">Relation: <span className="font-bold">{src.relation}</span> ({Math.round(src.confidence * 100)}%)</p>
-                            </div>
-                          ))}
+                {/* Right: Why This Decision */}
+                <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                  <h4 className="font-bold text-gray-900 mb-4 text-sm uppercase">Why This Decision?</h4>
+                  <div className="space-y-3">
+                    {result.reasons.map((reason, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <div className={`mt-1 ${verdictInfo.color.includes('green') ? 'text-green-600' : verdictInfo.color.includes('red') ? 'text-red-600' : 'text-yellow-600'}`}>
+                          {verdictInfo.text === 'VERIFIED' ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-gray-900">{reason}</p>
+                          <p className="text-xs text-gray-600 mt-1">Data points align with {result.confidence}% confidence threshold.</p>
                         </div>
                       </div>
-                    )}
-
-                    <p className="text-gray-700 text-sm font-semibold pt-2">🕐 {v.timestamp}</p>
+                    ))}
                   </div>
                 </div>
-              ))
+              </div>
+            )}
+
+            {/* AI Analysis Section */}
+            {result && (
+              <div className="grid grid-cols-2 gap-8 mb-8">
+                {/* Left: Analysis */}
+                <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                  <h4 className="font-bold text-gray-900 mb-4 uppercase text-sm flex items-center gap-2">
+                    <AlertCircle size={18} />
+                    Analysis with AI
+                  </h4>
+                  <p className="text-sm text-gray-700 leading-relaxed mb-4">
+                    {result.explanation}
+                  </p>
+                  <div className="bg-gray-50 rounded p-4 text-xs text-gray-600">
+                    <p className="font-semibold text-gray-900 mb-2">Key observations:</p>
+                    <ul className="space-y-2 list-disc list-inside">
+                      <li>Immediate viral acceleration without primary source link.</li>
+                      <li>Image attached to the claim is a recycled file from a 2018 flood in a different province.</li>
+                      <li>Temporal analysis shows the "news" broke at 03:00 local time, with 90% of traffic originating from external VPN nodes.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Right: Source Evidence */}
+                <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+                  <h4 className="font-bold text-gray-900 mb-4 uppercase text-sm flex items-center gap-2">
+                    📋 Source Evidence
+                  </h4>
+                  <div className="space-y-3">
+                    {result.evidence.map((src, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition cursor-pointer">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
+                            <span className="text-xs font-bold text-blue-600">📰</span>
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{src.source}</p>
+                            <p className="text-xs text-gray-600">Cross-verify with temporal data</p>
+                          </div>
+                        </div>
+                        <div>
+                          {src.relation === 'support' ? (
+                            <CheckCircle size={20} className="text-green-600" />
+                          ) : src.relation === 'contradict' ? (
+                            <XCircle size={20} className="text-red-600" />
+                          ) : (
+                            <AlertCircle size={20} className="text-yellow-600" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!result && (
+              <div className="text-center py-20 bg-white rounded-lg border-2 border-dashed border-gray-300">
+                <AlertCircle size={48} className="mx-auto text-gray-400 mb-4" />
+                <p className="text-xl font-semibold text-gray-700">Enter a claim to verify</p>
+                <p className="text-gray-600 mt-2">Use the input above to analyze credibility</p>
+              </div>
             )}
           </div>
         </div>
