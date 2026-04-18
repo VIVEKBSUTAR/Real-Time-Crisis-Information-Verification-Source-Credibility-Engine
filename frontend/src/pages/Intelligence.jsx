@@ -123,14 +123,6 @@ export default function Intelligence() {
                   <div className="space-y-3">
                     {result.sources.slice(0, 3).map((src, idx) => (
                       <div key={`${idx}-${src.similarity}`} className="rounded-lg border border-slate-200 p-3">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                            src.label === 'TRUE' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                          }`}>
-                            {src.label}
-                          </span>
-                          <span className="text-xs text-slate-500">Similarity: {Math.round((src.similarity || 0) * 100)}%</span>
-                        </div>
                         <p className="text-sm text-slate-600">{src.text}</p>
                       </div>
                     ))}
