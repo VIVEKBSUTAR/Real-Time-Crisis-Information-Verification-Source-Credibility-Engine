@@ -10,6 +10,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def normalize_label(label_value) -> int:
+    """Convert any label format to 0 (false) or 1 (true)"""
+    if label_value is None:
+        return 0
+    
+    # Handle various types
+    label_str = str(label_value).lower().strip()
+    
+    # String representations
+    if label_str in ['1', 'true', 'yes', 'verified', 'fact', 'correct', 'real']:
+        return 1
+    elif label_str in ['0', 'false', 'no', 'fake', 'debunked', 'incorrect', 'incorrect', 'misinformation']:
+        return 0
+    
+    # Numeric
+    try:
+        return 1 if int(float(label_str)) == 1 else 0
+    except:
+        pass
+    
+    # Default to 0 if unclear
+    return 0
+
+
 class DatasetLoader:
     """Load and manage fake news dataset"""
     
@@ -46,14 +70,15 @@ class DatasetLoader:
                 # Extract key fields
                 claim_id = row_dict.get('id', f'CLAIM_{row_idx}')
                 claim_text = row_dict.get('Eng_Trans_Statement') or row_dict.get('Statement', '')
-                label = row_dict.get('Label', 0)
+                raw_label = row_dict.get('Label', 0)
+                label = normalize_label(raw_label)  # ← FIX: Normalize all labels
                 source = row_dict.get('Fact_Check_Source', 'Unknown')
                 
                 if claim_text.strip():
                     self.claims.append({
                         'id': claim_id,
                         'text': claim_text.strip(),
-                        'label': label,
+                        'label': label,  # Now always 0 or 1
                         'source': source,
                         'author': row_dict.get('Author_Name', ''),
                         'category': row_dict.get('News_Category', '')
@@ -67,8 +92,8 @@ class DatasetLoader:
             self.loaded = True
             print(f"\n✅ Dataset loaded successfully!")
             print(f"   Total claims: {len(self.claims):,}")
-            print(f"   True claims: {sum(1 for c in self.claims if c['label'] == 1):,}")
-            print(f"   False claims: {sum(1 for c in self.claims if c['label'] == 0):,}")
+            print(f"   Verified claims (label=1): {sum(1 for c in self.claims if c['label'] == 1):,}")
+            print(f"   Debunked claims (label=0): {sum(1 for c in self.claims if c['label'] == 0):,}")
             return True
             
         except Exception as e:
@@ -77,17 +102,16 @@ class DatasetLoader:
             traceback.print_exc()
             return False
     
-    def find_similar(self, query_text: str, threshold: float = 0.5, limit: int = 3) -> List[Dict]:
+    def find_similar(self, query_text: str, threshold: float = 0.5, limit: int = 5) -> List[Dict]:
         """
         Find similar claims using string similarity
-        Returns list of similar claims with their labels
+        Returns list of similar claims with their labels (0 or 1)
         """
         if not self.loaded:
             return []
         
         from difflib import SequenceMatcher
         
-        results = []
         query_lower = query_text.lower()
         
         # Calculate similarity for each claim

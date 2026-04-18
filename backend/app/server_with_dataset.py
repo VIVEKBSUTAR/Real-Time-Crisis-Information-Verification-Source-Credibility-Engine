@@ -21,11 +21,14 @@ else:
 
 
 def calculate_verdict(label: int, confidence: float) -> str:
-    """Convert label to verdict"""
+    """Convert label to verdict based on normalized label (0 or 1)"""
+    # Normalize label to ensure it's 0 or 1
+    label = int(label)
+    
     if label == 1:
-        return "Verified" if confidence > 0.7 else "Uncertain"
+        return "Verified" if confidence > 0.6 else "Uncertain"
     else:
-        return "Debunked" if confidence > 0.7 else "Uncertain"
+        return "Debunked" if confidence > 0.6 else "Uncertain"
 
 
 class VerificationHandler(BaseHTTPRequestHandler):
@@ -106,8 +109,11 @@ class VerificationHandler(BaseHTTPRequestHandler):
                         label_counts = Counter(labels)
                         final_label = max(label_counts.items(), key=lambda x: x[1])[0]
                         
-                        # Calculate confidence based on match strength
-                        confidence = min(len(similar_claims) / 5.0, 0.95)
+                        # Calculate confidence based on how much similar claims agree on the label
+                        # If all similar claims have same label, high confidence
+                        # If mixed, lower confidence
+                        label_agreement = max(label_counts.values()) / len(labels)
+                        confidence = label_agreement * 0.95  # Cap at 95%
                         
                         # Build evidence from similar claims
                         for idx, sim_claim in enumerate(similar_claims[:3], 1):
