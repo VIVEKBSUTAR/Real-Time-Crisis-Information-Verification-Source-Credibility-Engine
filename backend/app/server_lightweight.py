@@ -16,7 +16,6 @@ from app.core.semantic_pipeline import initialize_embedding_model, get_embedding
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
 from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
-from app.gemini_explainer import enrich_analysis_response
 
 # Custom HTTPServer with SO_REUSEADDR enabled (prevents "Address already in use")
 class ReuseAddrHTTPServer(HTTPServer):
@@ -279,15 +278,56 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     self.send_error_response(503, "Dataset not available")
                     return
                 
-                # Analysis will initialize on first use if needed
-                
                 print(f"📊 Analyzing: {claim[:50]}...")
                 
                 # Use OPTIMIZED vectorized analysis
                 result = analyze_claim_optimized(claim)
-                
-                # Enrich with Gemini explanations
-                response = enrich_analysis_response(result)
+
+                if result.get("error"):
+                    self.send_error_response(503, result["error"])
+                    return
+
+                credibility = result.get("credibility", {}) or {}
+                raw_verdict = str(credibility.get("verdict", "")).upper()
+                if "TRUE" in raw_verdict:
+                    verdict = "VERIFIED"
+                elif "FALSE" in raw_verdict:
+                    verdict = "FALSE"
+                else:
+                    verdict = "UNVERIFIED"
+
+                confidence = float(credibility.get("confidence", 0.5))
+                explanation = credibility.get(
+                    "reasoning",
+                    f"Claim analyzed against similar records in the dataset. Verdict: {verdict}.",
+                )
+
+                similar_claims = result.get("similar_claims", []) or []
+                evidence = []
+                for item in similar_claims[:5]:
+                    evidence.append(
+                        {
+                            "text": item.get("statement", ""),
+                            "similarity": item.get("similarity", 0.0),
+                            "label": "TRUE" if str(item.get("label", "")).lower() == "true" else "FALSE",
+                        }
+                    )
+
+                response = {
+                    "claim": claim,
+                    "original_claim": claim,
+                    "verdict": verdict,
+                    "confidence": confidence,
+                    "explanation": explanation,
+                    "evidence_summary": explanation,
+                    "evidence": evidence,
+                    "sources": evidence,
+                    "normalized_claim": result.get("normalized_claim"),
+                    "similar_claims": similar_claims,
+                    "credibility": credibility,
+                    "analysis_time_seconds": result.get("analysis_time_seconds", 0),
+                    "dataset_used": "optimized_10k_curated",
+                }
                 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -312,19 +352,27 @@ class LightweightHandler(BaseHTTPRequestHandler):
         self.wfile.write(safe_json_dumps({"error": message, "code": code}).encode())
 
 def run_server(port=8000):
-    print("3️⃣  Starting HTTP server on port 8000...\n")
+    print(f"3️⃣  Starting HTTP server on port {port}...\n")
     print("📍 Fast Endpoints:")
-    print("   • GET  http://localhost:8000/health")
-    print("   • GET  http://localhost:8000/analytics (instant)")
-    print("   • GET  http://localhost:8000/archived?page=1 (instant)")
-    print("   • GET  http://localhost:8000/threats (instant)")
-    print("   • GET  http://localhost:8000/regions (instant)")
-    print("   • POST http://localhost:8000/analyze_claim (uses analysis pipeline)\n")
+    print(f"   • GET  http://localhost:{port}/health")
+    print(f"   • GET  http://localhost:{port}/analytics (instant)")
+    print(f"   • GET  http://localhost:{port}/archived?page=1 (instant)")
+    print(f"   • GET  http://localhost:{port}/threats (instant)")
+    print(f"   • GET  http://localhost:{port}/regions (instant)")
+    print(f"   • POST http://localhost:{port}/analyze_claim (uses analysis pipeline)\n")
     print("✨ Backend ready!\n")
     print("=" * 60 + "\n")
     
     server_address = ("", port)
-    httpd = ReuseAddrHTTPServer(server_address, LightweightHandler)
+    try:
+        httpd = ReuseAddrHTTPServer(server_address, LightweightHandler)
+    except OSError as e:
+        if getattr(e, "errno", None) == 48:
+            print(f"❌ Port {port} is already in use.")
+            print("   Another backend process is already running.")
+            print(f"   Stop it with: lsof -nP -iTCP:{port} -sTCP:LISTEN")
+            return
+        raise
     
     try:
         httpd.serve_forever()
