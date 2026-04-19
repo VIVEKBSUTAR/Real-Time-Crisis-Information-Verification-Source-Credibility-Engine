@@ -15,6 +15,8 @@ import numpy as np
 W1_SIMILARITY = 0.6
 W2_RELATION = 0.4
 MIN_SIMILARITY = 0.5
+MIN_DYNAMIC_W1 = 0.35
+MAX_DYNAMIC_W1 = 0.65
 
 RELATION_WEIGHTS = {
     "supports": 1.0,
@@ -33,16 +35,59 @@ def _normalize_relation(relation: Any) -> str:
     return "neutral"
 
 
-def compute_evidence_score(similarity: float, relation: str) -> float:
+def _compute_dynamic_weights(filtered_inputs: List[Dict[str, Any]]) -> tuple[float, float]:
+    """
+    Compute adaptive weights per request (deterministic, no state mutation).
+
+    Intuition:
+    - If semantic quality is stronger, rely more on similarity.
+    - If relation signal/diversity is stronger, rely more on relation weight.
+    - Keep bounds tight to avoid extreme swings (bias/instability).
+    """
+    if not filtered_inputs:
+        return W1_SIMILARITY, W2_RELATION
+
+    similarities = np.array(
+        [float(item.get("similarity", 0.0) or 0.0) for item in filtered_inputs],
+        dtype=np.float32,
+    )
+    relations = [_normalize_relation(item.get("relation")) for item in filtered_inputs]
+
+    # Semantic signal from average post-threshold similarity.
+    semantic_signal = float(np.clip(np.mean(similarities), 0.0, 1.0))
+
+    # Logical signal from non-neutral proportion + support/contradict diversity.
+    decisive_ratio = float(sum(rel != "neutral" for rel in relations)) / max(1, len(relations))
+    has_supports = any(rel == "supports" for rel in relations)
+    has_contradicts = any(rel == "contradicts" for rel in relations)
+    relation_diversity = 1.0 if (has_supports and has_contradicts) else (0.75 if decisive_ratio > 0 else 0.4)
+    logical_signal = float(np.clip((0.7 * decisive_ratio) + (0.3 * relation_diversity), 0.0, 1.0))
+
+    total_signal = semantic_signal + logical_signal
+    if total_signal <= 1e-8:
+        return W1_SIMILARITY, W2_RELATION
+
+    w1 = semantic_signal / total_signal
+    w1 = float(np.clip(w1, MIN_DYNAMIC_W1, MAX_DYNAMIC_W1))
+    w2 = float(1.0 - w1)
+    return w1, w2
+
+
+def compute_evidence_score(
+    similarity: float,
+    relation: str,
+    w1: float = W1_SIMILARITY,
+    w2: float = W2_RELATION,
+) -> float:
     """
     Compute deterministic evidence score.
 
-    score = (0.6 * similarity) + (0.4 * relation_weight)
+    score = (w1 * similarity) + (w2 * relation_weight)
     """
     sim = float(np.clip(similarity, 0.0, 1.0))
     rel = _normalize_relation(relation)
     relation_weight = RELATION_WEIGHTS.get(rel, RELATION_WEIGHTS["neutral"])
-    return float((W1_SIMILARITY * sim) + (W2_RELATION * relation_weight))
+    return float((w1 * sim) + (w2 * relation_weight))
 
 
 def _rank_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -95,12 +140,14 @@ def select_best_evidence(nli_results: List[Dict], top_n: int = 3) -> List[Dict]:
     if not filtered_inputs:
         return []
 
+    w1, w2 = _compute_dynamic_weights(filtered_inputs)
+
     scored: List[Dict[str, Any]] = []
     for item in filtered_inputs:
         text = str(item.get("text", "") or "")
         similarity = float(item.get("similarity", 0.0) or 0.0)
         relation = _normalize_relation(item.get("relation"))
-        score = compute_evidence_score(similarity, relation)
+        score = compute_evidence_score(similarity, relation, w1=w1, w2=w2)
         scored.append(
             {
                 "text": text,
@@ -152,4 +199,3 @@ def select_best_evidence(nli_results: List[Dict], top_n: int = 3) -> List[Dict]:
             break
 
     return selected
-
