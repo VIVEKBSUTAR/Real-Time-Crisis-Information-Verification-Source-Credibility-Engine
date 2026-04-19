@@ -140,7 +140,7 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                 # Step 2: NLI reasoning on retrieved pairs
                 nli_results = nli_service.evaluate_batch(nli_pairs)
                 for row in nli_results:
-                    row["source"] = "dataset"
+                    row["source"] = row.get("source", "dataset")
                     # Cache embeddings at the evidence level for clustering stage
                     row["premise_embedding"] = get_embedding(row.get("premise", ""))
 

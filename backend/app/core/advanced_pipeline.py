@@ -74,7 +74,9 @@ class EmbeddingClusterer:
                     0: {
                         "size": len(embeddings),
                         "center": embeddings[0] if len(embeddings) > 0 else None,
-                        "members": claim_ids
+                        "members": claim_ids,
+                        "density": 1.0,
+                        "spread": 0.0,
                     }
                 }
             }

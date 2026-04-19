@@ -33,6 +33,7 @@ Temporal Tracking
 - **Embedding Service**: sentence-transformers for multilingual embeddings
 - **Clustering**: Signal detection via vector similarity
 - **Evidence Eval**: NLI model for claim-source relationships
+- **Source Credibility Graph**: Dynamic trust graph with Bayesian-style updates
 - **Decision Engine**: Weighted aggregation with Bayesian credibility
 - **API**: FastAPI with async processing
 

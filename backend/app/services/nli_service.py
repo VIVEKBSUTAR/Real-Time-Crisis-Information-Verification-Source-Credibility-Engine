@@ -23,6 +23,29 @@ except ImportError:
 _nli_model = None
 
 
+def _lexical_nli_fallback(premise: str, hypothesis: str) -> Dict[str, float]:
+    """
+    Deterministic lexical fallback for NLI-style scoring.
+    Keeps outputs meaningful when model labels are unavailable.
+    """
+    premise_tokens = {t for t in str(premise).lower().split() if t}
+    hypothesis_tokens = {t for t in str(hypothesis).lower().split() if t}
+    if not premise_tokens or not hypothesis_tokens:
+        return {"entailment": 0.25, "neutral": 0.5, "contradiction": 0.25}
+
+    overlap = len(premise_tokens & hypothesis_tokens) / max(1, len(premise_tokens | hypothesis_tokens))
+    neg_words = {"not", "no", "never", "fake", "false", "hoax", "debunked"}
+    neg_mismatch = bool((premise_tokens & neg_words) ^ (hypothesis_tokens & neg_words))
+
+    if overlap >= 0.35 and not neg_mismatch:
+        scores = {"entailment": 0.70, "neutral": 0.20, "contradiction": 0.10}
+    elif overlap < 0.12 or neg_mismatch:
+        scores = {"entailment": 0.12, "neutral": 0.33, "contradiction": 0.55}
+    else:
+        scores = {"entailment": 0.28, "neutral": 0.48, "contradiction": 0.24}
+    return scores
+
+
 def initialize_nli_model(model_name: str = "facebook/bart-large-mnli") -> bool:
     """
     Initialize the global NLI model.
@@ -90,14 +113,7 @@ def evaluate_entailment(
     model = get_nli_model() if not use_mock else None
     
     if model is None or use_mock:
-        # Mock mode: reasonable scores based on text similarity
-        np.random.seed(hash(premise + hypothesis) % 2**32)
-        scores = np.random.dirichlet([1, 1, 1])
-        return {
-            "entailment": float(scores[0]),
-            "neutral": float(scores[1]),
-            "contradiction": float(scores[2])
-        }
+        return _lexical_nli_fallback(premise, hypothesis)
     
     try:
         # Use zero-shot classification for entailment inference
@@ -110,21 +126,20 @@ def evaluate_entailment(
         
         # Map to entailment scores
         label_scores = {label: score for label, score in zip(result["labels"], result["scores"])}
-        
+        entailment = float(label_scores.get("ENTAILMENT", 0.0))
+        neutral = float(label_scores.get("NEUTRAL", 0.0))
+        contradiction = float(label_scores.get("CONTRADICTION", 0.0))
+        if entailment == 0.0 and neutral == 0.0 and contradiction == 0.0:
+            return _lexical_nli_fallback(premise, hypothesis)
         return {
-            "entailment": label_scores.get("ENTAILMENT", 0.0),
-            "neutral": label_scores.get("NEUTRAL", 0.0),
-            "contradiction": label_scores.get("CONTRADICTION", 0.0)
+            "entailment": entailment,
+            "neutral": neutral,
+            "contradiction": contradiction
         }
     
     except Exception as e:
         print(f"Error in NLI inference: {e}")
-        # Fall back to mock scoring
-        return {
-            "entailment": 0.3,
-            "neutral": 0.4,
-            "contradiction": 0.3
-        }
+        return _lexical_nli_fallback(premise, hypothesis)
 
 
 def batch_evaluate_entailment(

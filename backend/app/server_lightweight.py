@@ -7,6 +7,7 @@ import json
 import sys
 import socket
 import time
+from difflib import SequenceMatcher
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import numpy as np
@@ -21,8 +22,9 @@ from app.core.semantic_pipeline import (
 )
 from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
-from app.optimized_analysis import initialize_analysis_dataset
+from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
 from app.services.nli_service import nli_service
+from app.services.source_credibility_graph import SourceCredibilityGraph
 from app.explainability import (
     build_explainability_input,
     generate_evidence_summary,
@@ -107,12 +109,20 @@ def ensure_dataset_loaded():
 
 # Initialize advanced pipeline (lazy - created on first use)
 pipeline = None
+source_graph = None
 
 def get_pipeline():
     global pipeline
     if pipeline is None:
         pipeline = AdvancedVerificationPipeline()
     return pipeline
+
+
+def get_source_graph():
+    global source_graph
+    if source_graph is None:
+        source_graph = SourceCredibilityGraph(alpha=0.7, max_sources_per_query=10)
+    return source_graph
 
 class LightweightHandler(BaseHTTPRequestHandler):
     """Handle requests efficiently"""
@@ -292,6 +302,37 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     k=5,
                     similarity_threshold=0.4,
                 )
+                # Fallback retrieval path:
+                # semantic_pipeline expects per-item embeddings in dataset entries;
+                # if unavailable, use optimized vectorized retrieval output.
+                if not nli_pairs:
+                    optimized = analyze_claim_optimized(claim)
+                    similar_claims = optimized.get("similar_claims", []) or []
+                    nli_pairs = [
+                        {
+                            "premise": row.get("statement", "") or row.get("text", ""),
+                            "hypothesis": claim,
+                            "similarity": float(row.get("similarity", 0.0) or 0.0),
+                            "label": 1 if str(row.get("label", "")).lower() == "true" else 0,
+                            "source": "dataset",
+                        }
+                        for row in similar_claims
+                        if float(row.get("similarity", 0.0) or 0.0) >= 0.5
+                    ]
+                if not nli_pairs and hasattr(dataset, "find_similar"):
+                    lexical_matches = dataset.find_similar(claim, threshold=0.2, limit=5)
+                    claim_lower = claim.lower()
+                    nli_pairs = [
+                        {
+                            "premise": row.get("text", ""),
+                            "hypothesis": claim,
+                            "similarity": float(SequenceMatcher(None, claim_lower, str(row.get("text", "")).lower()).ratio()),
+                            "label": int(row.get("label", 0) or 0),
+                            "source": str(row.get("source", "dataset")),
+                        }
+                        for row in lexical_matches
+                        if str(row.get("text", "")).strip()
+                    ]
                 if not nli_pairs:
                     response = {
                         "verdict": "UNVERIFIED",
@@ -307,6 +348,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                         "credibility": {"verdict": "UNCERTAIN", "confidence": 0.3},
                         "analysis_time_seconds": round(time.time() - start_time, 3),
                         "dataset_used": "full_pipeline_topk",
+                        "source_credibility_graph": {"nodes": [], "edges": [], "source_evidence": {}},
                         "pipeline": {"mode": "full_advanced", "semantic_matches": 0},
                     }
                     self.send_json_response(200, response)
@@ -314,7 +356,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
 
                 nli_results = nli_service.evaluate_batch(nli_pairs)
                 for row in nli_results:
-                    row["source"] = "dataset"
+                    row["source"] = row.get("source", "dataset")
                     row["premise_embedding"] = get_embedding(row.get("premise", ""))
 
                 advanced_result = get_pipeline().process_claim(
@@ -328,6 +370,13 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 confidence = float(advanced_result.get("verdict", {}).get("confidence", 0.5) or 0.5)
 
                 selected_evidence = advanced_result.get("selected_evidence", []) or []
+                evidence_lookup = {
+                    (
+                        str(item.get("premise", "")),
+                        float(item.get("similarity", 0.0) or 0.0),
+                    ): item
+                    for item in nli_results
+                }
                 sources = [
                     {
                         "text": item.get("text", ""),
@@ -335,9 +384,70 @@ class LightweightHandler(BaseHTTPRequestHandler):
                         "label": "TRUE" if item.get("relation") == "supports" else "FALSE",
                         "relation": item.get("relation", "neutral"),
                         "score": float(item.get("score", 0.0) or 0.0),
+                        "source": str(
+                            evidence_lookup.get(
+                                (
+                                    str(item.get("text", "")),
+                                    float(item.get("similarity", 0.0) or 0.0),
+                                ),
+                                {},
+                            ).get("source", "dataset")
+                        ),
                     }
                     for item in selected_evidence
                 ]
+                if not sources:
+                    relation_map = {
+                        "ENTAILMENT": "supports",
+                        "CONTRADICTION": "contradicts",
+                        "NEUTRAL": "neutral",
+                    }
+                    fallback_ranked = sorted(
+                        nli_results,
+                        key=lambda row: float(row.get("similarity", 0.0) or 0.0),
+                        reverse=True,
+                    )[:3]
+                    sources = [
+                        {
+                            "text": row.get("premise", ""),
+                            "similarity": float(row.get("similarity", 0.0) or 0.0),
+                            "label": "TRUE" if int(row.get("label", 0) or 0) == 1 else "FALSE",
+                            "relation": relation_map.get(
+                                nli_service.get_relationship(row.get("nli_scores", {})),
+                                "neutral",
+                            ),
+                            "score": float(row.get("similarity", 0.0) or 0.0),
+                            "source": str(row.get("source", "dataset")),
+                        }
+                        for row in fallback_ranked
+                    ]
+
+                # If pipeline lands on UNVERIFIED despite directional evidence,
+                # derive a deterministic tie-break verdict from selected evidence.
+                if verdict == "UNVERIFIED" and sources:
+                    support_score = sum(
+                        float(item.get("similarity", 0.0) or 0.0)
+                        for item in sources
+                        if str(item.get("relation", "")).lower() == "supports"
+                    )
+                    contradict_score = sum(
+                        float(item.get("similarity", 0.0) or 0.0)
+                        for item in sources
+                        if str(item.get("relation", "")).lower() == "contradicts"
+                    )
+                    total_score = support_score + contradict_score
+                    if total_score > 0:
+                        margin = abs(support_score - contradict_score)
+                        if margin >= 0.1:
+                            if support_score > contradict_score:
+                                verdict = "TRUE"
+                                verdict_raw = "VERIFIED"
+                            else:
+                                verdict = "FALSE"
+                                verdict_raw = "FALSE"
+                            confidence = float(min(0.95, 0.5 + (margin / total_score) * 0.45))
+
+                source_graph_payload = get_source_graph().ingest_evidence(sources)
 
                 explainability_data = build_explainability_input(
                     claim=claim,
@@ -345,8 +455,8 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     confidence=confidence,
                     sources=sources,
                 )
-                explanation = advanced_result.get("explanation") or generate_explanation(explainability_data)
-                evidence_summary = advanced_result.get("evidence_summary") or generate_evidence_summary(explainability_data)
+                explanation = generate_explanation(explainability_data)
+                evidence_summary = generate_evidence_summary(explainability_data)
 
                 response = {
                     "verdict": verdict,
@@ -374,6 +484,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     },
                     "analysis_time_seconds": round(time.time() - start_time, 3),
                     "dataset_used": "full_pipeline_topk_clustered",
+                    "source_credibility_graph": source_graph_payload,
                     "pipeline": {
                         "mode": "full_advanced",
                         "semantic_matches": len(nli_pairs),

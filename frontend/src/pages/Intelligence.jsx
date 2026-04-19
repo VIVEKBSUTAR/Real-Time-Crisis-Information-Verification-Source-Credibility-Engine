@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
-import { CheckCircle, XCircle, Clock, Bot } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { CheckCircle, XCircle, Clock, Bot, GitBranch, ChevronDown, ChevronUp } from 'lucide-react';
+import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
+import 'reactflow/dist/style.css';
 
 export default function Intelligence() {
   const [claim, setClaim] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [showGraph, setShowGraph] = useState(false);
+  const [selectedSource, setSelectedSource] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,7 +32,10 @@ export default function Intelligence() {
         explanation: data.explanation,
         evidence_summary: data.evidence_summary,
         sources: data.sources || [],
+        sourceGraph: data.source_credibility_graph || { nodes: [], edges: [], source_evidence: {} },
       });
+      setShowGraph(false);
+      setSelectedSource(null);
     } catch (error) {
       console.error('Error:', error);
       alert('Error analyzing claim: ' + error.message);
@@ -49,6 +56,75 @@ export default function Intelligence() {
   };
 
   const verdictStyle = result ? getVerdictColor(result.verdict) : null;
+
+  const graphNodesAndEdges = useMemo(() => {
+    if (!result?.sourceGraph?.nodes) return { nodes: [], edges: [] };
+    const graphNodes = result.sourceGraph.nodes || [];
+    const graphEdges = result.sourceGraph.edges || [];
+    const total = graphNodes.length || 1;
+    const radius = 180;
+    const centerX = 260;
+    const centerY = 190;
+
+    const getTrustColor = (trust) => {
+      if (trust > 0.7) return { bg: '#dcfce7', border: '#16a34a', text: '#166534' };
+      if (trust >= 0.4) return { bg: '#fef9c3', border: '#ca8a04', text: '#713f12' };
+      return { bg: '#fee2e2', border: '#dc2626', text: '#7f1d1d' };
+    };
+
+    const nodes = graphNodes.map((node, index) => {
+      const angle = (2 * Math.PI * index) / total;
+      const color = getTrustColor(node.trust || 0);
+      const tooltip = `Trust: ${(node.trust || 0).toFixed(2)} | Influence: ${(node.influence || 0).toFixed(2)}`;
+      return {
+        id: node.id,
+        position: {
+          x: centerX + radius * Math.cos(angle),
+          y: centerY + radius * Math.sin(angle),
+        },
+        data: {
+          label: (
+            <div title={tooltip} className="text-center">
+              <div className="text-xs font-semibold">{node.id}</div>
+              <div className="text-[11px]">Trust {(node.trust || 0).toFixed(2)}</div>
+              {node.low_credibility && (
+                <div className="text-[10px] font-semibold text-rose-700">⚠ Low credibility</div>
+              )}
+            </div>
+          ),
+          trust: node.trust || 0,
+          influence: node.influence || 0,
+          low_credibility: !!node.low_credibility,
+        },
+        style: {
+          background: color.bg,
+          border: `2px solid ${color.border}`,
+          color: color.text,
+          borderRadius: 12,
+          padding: 8,
+          minWidth: 120,
+        },
+      };
+    });
+
+    const edges = graphEdges.map((edge, idx) => ({
+      id: `e-${edge.source}-${edge.target}-${idx}`,
+      source: edge.source,
+      target: edge.target,
+      animated: false,
+      label: `${(edge.weight || 0).toFixed(2)}`,
+      style: {
+        strokeWidth: Math.max(1, Math.round((edge.weight || 0) * 4)),
+        stroke: '#64748b',
+      },
+      labelStyle: { fill: '#475569', fontSize: 10 },
+    }));
+
+    return { nodes, edges };
+  }, [result]);
+
+  const selectedSourceEvidence = result?.sourceGraph?.source_evidence?.[selectedSource] || [];
+
   const truncateText = (text, maxLength = 120) => {
     if (!text) return '';
     return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
@@ -81,12 +157,14 @@ export default function Intelligence() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setClaim('');
-                    setResult(null);
-                  }}
-                  className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition"
-                >
+                    onClick={() => {
+                      setClaim('');
+                      setResult(null);
+                      setShowGraph(false);
+                      setSelectedSource(null);
+                    }}
+                    className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition"
+                  >
                   Reset
                 </button>
               </div>
@@ -157,6 +235,60 @@ export default function Intelligence() {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="mt-5 bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setShowGraph((prev) => !prev)}
+                      className="w-full flex items-center justify-between text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <GitBranch size={16} className="text-indigo-600" />
+                        <span className="text-sm font-semibold text-slate-800">Dynamic Source Credibility Graph</span>
+                      </div>
+                      {showGraph ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+                    </button>
+
+                    {showGraph && (
+                      <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-4">
+                        <div className="xl:col-span-2 border border-slate-200 rounded-lg overflow-hidden bg-slate-50" style={{ height: 420 }}>
+                          <ReactFlow
+                            nodes={graphNodesAndEdges.nodes}
+                            edges={graphNodesAndEdges.edges}
+                            fitView
+                            onNodeClick={(_, node) => setSelectedSource(node.id)}
+                          >
+                            <MiniMap />
+                            <Controls />
+                            <Background gap={16} size={1} />
+                          </ReactFlow>
+                        </div>
+                        <div className="border border-slate-200 rounded-lg bg-slate-50 p-3">
+                          <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">
+                            {selectedSource ? `Source: ${selectedSource}` : 'Source Evidence'}
+                          </p>
+                          {selectedSource ? (
+                            <div className="space-y-2 max-h-[360px] overflow-auto pr-1">
+                              {selectedSourceEvidence.length > 0 ? (
+                                selectedSourceEvidence.map((item, idx) => (
+                                  <div key={`${selectedSource}-${idx}`} className="rounded-md border border-slate-200 bg-white p-2">
+                                    <p className="text-xs text-slate-700">{truncateText(item.text, 110)}</p>
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      {item.relation?.toUpperCase()} • {String(item.label).toUpperCase()} • sim {(item.similarity || 0).toFixed(2)}
+                                    </p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-xs text-slate-500">No evidence linked to this source.</p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-500">Click a node to inspect evidence and trust context.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

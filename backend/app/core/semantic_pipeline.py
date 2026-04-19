@@ -223,11 +223,12 @@ def get_top_k_similar(
         
         # Apply threshold filter
         if similarity >= similarity_threshold:
-            similarities.append({
-                "text": item["text"],
-                "label": item["label"],
-                "similarity": similarity
-            })
+                similarities.append({
+                    "text": item["text"],
+                    "label": item["label"],
+                    "similarity": similarity,
+                    "source": item.get("source", "dataset"),
+                })
     
     # Sort by similarity (descending)
     similarities.sort(key=lambda x: x["similarity"], reverse=True)
@@ -306,7 +307,8 @@ def prepare_nli_pairs(
             "premise": result["text"],
             "hypothesis": user_text,
             "similarity": result["similarity"],
-            "label": result["label"]
+            "label": result["label"],
+            "source": result.get("source", "dataset"),
         }
         nli_pairs.append(nli_pair)
     
