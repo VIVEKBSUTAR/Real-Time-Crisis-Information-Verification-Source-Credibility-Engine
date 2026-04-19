@@ -7,6 +7,7 @@ import json
 import sys
 import socket
 import time
+import base64
 from difflib import SequenceMatcher
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -24,7 +25,10 @@ from app.core.advanced_pipeline import AdvancedVerificationPipeline
 from app.json_encoder import safe_json_dumps
 from app.optimized_analysis import initialize_analysis_dataset, analyze_claim_optimized
 from app.services.nli_service import nli_service
+from app.services.post_nli_service import post_nli_service
+from app.services.evidence_selection_agent import select_best_evidence
 from app.services.source_credibility_graph import SourceCredibilityGraph
+from app.services.ocr_service import extract_text_from_bytes
 from app.explainability import (
     build_explainability_input,
     generate_evidence_summary,
@@ -124,6 +128,16 @@ def get_source_graph():
         source_graph = SourceCredibilityGraph(alpha=0.7, max_sources_per_query=10)
     return source_graph
 
+
+def decode_base64_image(image_base64: str) -> bytes:
+    """Decode base64 image payload (supports data URI prefixes)."""
+    if not image_base64:
+        return b""
+    raw = str(image_base64).strip()
+    if "," in raw and raw.startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    return base64.b64decode(raw, validate=False)
+
 class LightweightHandler(BaseHTTPRequestHandler):
     """Handle requests efficiently"""
     
@@ -162,7 +176,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 "mode": "fast data retrieval",
                 "embedding_ready": EMBEDDING_READY,
                 "dataset_ready": DATASET_READY,
-                "endpoints": ["/health", "/analytics", "/archived", "/threats", "/regions", "/analyze_claim"]
+                "endpoints": ["/health", "/analytics", "/archived", "/threats", "/regions", "/extract_text_image", "/analyze_claim"]
             }
             self.send_json_response(200, response)
             return
@@ -270,15 +284,39 @@ class LightweightHandler(BaseHTTPRequestHandler):
         self.send_json_response(404, {"error": "Not found", "code": 404})
     
     def do_POST(self):
+        if self.path == "/extract_text_image":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode("utf-8")
+                data = json.loads(body) if body else {}
+                image_base64 = data.get("image_base64", "")
+                if not image_base64:
+                    self.send_error_response(400, "image_base64 is required")
+                    return
+                image_bytes = decode_base64_image(image_base64)
+                extracted_text = extract_text_from_bytes(image_bytes)
+                self.send_json_response(200, {"text": extracted_text})
+            except Exception as e:
+                self.send_error_response(500, f"OCR extraction failed: {str(e)[:120]}")
+            return
+
         if self.path == "/analyze_claim":
             try:
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length).decode("utf-8")
                 data = json.loads(body)
-                claim = data.get("text", "").strip()
+                claim = str(data.get("text", "") or "").strip()
+                image_base64 = data.get("image_base64", "")
+                extracted_text = ""
+
+                # Image -> OCR -> text (before normalization pipeline)
+                if not claim and image_base64:
+                    image_bytes = decode_base64_image(image_base64)
+                    extracted_text = extract_text_from_bytes(image_bytes)
+                    claim = extracted_text
                 
                 if not claim:
-                    self.send_error_response(400, "Empty claim")
+                    self.send_error_response(400, "Empty claim text and no OCR text extracted")
                     return
                 
                 if not EMBEDDING_READY:
@@ -314,7 +352,12 @@ class LightweightHandler(BaseHTTPRequestHandler):
                             "hypothesis": claim,
                             "similarity": float(row.get("similarity", 0.0) or 0.0),
                             "label": 1 if str(row.get("label", "")).lower() == "true" else 0,
-                            "source": "dataset",
+                            "source": str(
+                                row.get("source")
+                                or row.get("region")
+                                or row.get("category")
+                                or "dataset"
+                            ),
                         }
                         for row in similar_claims
                         if float(row.get("similarity", 0.0) or 0.0) >= 0.5
@@ -349,64 +392,68 @@ class LightweightHandler(BaseHTTPRequestHandler):
                         "analysis_time_seconds": round(time.time() - start_time, 3),
                         "dataset_used": "full_pipeline_topk",
                         "source_credibility_graph": {"nodes": [], "edges": [], "source_evidence": {}},
+                        "extracted_text": extracted_text,
                         "pipeline": {"mode": "full_advanced", "semantic_matches": 0},
                     }
                     self.send_json_response(200, response)
                     return
 
                 nli_results = nli_service.evaluate_batch(nli_pairs)
+                relation_map = {
+                    "ENTAILMENT": "supports",
+                    "CONTRADICTION": "contradicts",
+                    "NEUTRAL": "neutral",
+                }
+                evidence_candidates = []
+                evidence_lookup = {}
                 for row in nli_results:
                     row["source"] = row.get("source", "dataset")
-                    row["premise_embedding"] = get_embedding(row.get("premise", ""))
+                    relation = relation_map.get(
+                        nli_service.get_relationship(row.get("nli_scores", {})),
+                        "neutral",
+                    )
+                    similarity = float(row.get("similarity", 0.0) or 0.0)
+                    text = str(row.get("premise", ""))
+                    evidence_candidates.append(
+                        {
+                            "text": text,
+                            "similarity": similarity,
+                            "label": "TRUE" if int(row.get("label", 0) or 0) == 1 else "FALSE",
+                            "relation": relation,
+                        }
+                    )
+                    evidence_lookup[(text, similarity, relation)] = row
 
-                advanced_result = get_pipeline().process_claim(
-                    user_claim=claim,
-                    user_embedding=get_embedding(claim),
-                    nli_results=nli_results,
-                )
-
-                verdict_raw = str(advanced_result.get("verdict", {}).get("verdict", "UNCERTAIN")).upper()
-                verdict = "TRUE" if verdict_raw == "VERIFIED" else ("FALSE" if verdict_raw == "FALSE" else "UNVERIFIED")
-                confidence = float(advanced_result.get("verdict", {}).get("confidence", 0.5) or 0.5)
-
-                selected_evidence = advanced_result.get("selected_evidence", []) or []
-                evidence_lookup = {
-                    (
-                        str(item.get("premise", "")),
+                selected_evidence = select_best_evidence(evidence_candidates, top_n=3)
+                sources = []
+                decision_nli = []
+                for item in selected_evidence:
+                    key = (
+                        str(item.get("text", "")),
                         float(item.get("similarity", 0.0) or 0.0),
-                    ): item
-                    for item in nli_results
-                }
-                sources = [
-                    {
-                        "text": item.get("text", ""),
-                        "similarity": float(item.get("similarity", 0.0) or 0.0),
-                        "label": "TRUE" if item.get("relation") == "supports" else "FALSE",
-                        "relation": item.get("relation", "neutral"),
-                        "score": float(item.get("score", 0.0) or 0.0),
-                        "source": str(
-                            evidence_lookup.get(
-                                (
-                                    str(item.get("text", "")),
-                                    float(item.get("similarity", 0.0) or 0.0),
-                                ),
-                                {},
-                            ).get("source", "dataset")
-                        ),
-                    }
-                    for item in selected_evidence
-                ]
+                        str(item.get("relation", "neutral")),
+                    )
+                    src_row = evidence_lookup.get(key, {})
+                    if src_row:
+                        decision_nli.append(src_row)
+                    sources.append(
+                        {
+                            "text": item.get("text", ""),
+                            "similarity": float(item.get("similarity", 0.0) or 0.0),
+                            "label": "TRUE" if item.get("relation") == "supports" else "FALSE",
+                            "relation": item.get("relation", "neutral"),
+                            "score": float(item.get("score", 0.0) or 0.0),
+                            "source": str(src_row.get("source", "dataset")),
+                        }
+                    )
+
                 if not sources:
-                    relation_map = {
-                        "ENTAILMENT": "supports",
-                        "CONTRADICTION": "contradicts",
-                        "NEUTRAL": "neutral",
-                    }
                     fallback_ranked = sorted(
                         nli_results,
                         key=lambda row: float(row.get("similarity", 0.0) or 0.0),
                         reverse=True,
                     )[:3]
+                    decision_nli = fallback_ranked
                     sources = [
                         {
                             "text": row.get("premise", ""),
@@ -422,30 +469,9 @@ class LightweightHandler(BaseHTTPRequestHandler):
                         for row in fallback_ranked
                     ]
 
-                # If pipeline lands on UNVERIFIED despite directional evidence,
-                # derive a deterministic tie-break verdict from selected evidence.
-                if verdict == "UNVERIFIED" and sources:
-                    support_score = sum(
-                        float(item.get("similarity", 0.0) or 0.0)
-                        for item in sources
-                        if str(item.get("relation", "")).lower() == "supports"
-                    )
-                    contradict_score = sum(
-                        float(item.get("similarity", 0.0) or 0.0)
-                        for item in sources
-                        if str(item.get("relation", "")).lower() == "contradicts"
-                    )
-                    total_score = support_score + contradict_score
-                    if total_score > 0:
-                        margin = abs(support_score - contradict_score)
-                        if margin >= 0.1:
-                            if support_score > contradict_score:
-                                verdict = "TRUE"
-                                verdict_raw = "VERIFIED"
-                            else:
-                                verdict = "FALSE"
-                                verdict_raw = "FALSE"
-                            confidence = float(min(0.95, 0.5 + (margin / total_score) * 0.45))
+                verdict_raw, confidence = post_nli_service.aggregate_with_dataset_voting(decision_nli or nli_results)
+                verdict = "TRUE" if verdict_raw == "VERIFIED" else ("FALSE" if verdict_raw == "FALSE" else "UNVERIFIED")
+                confidence = float(confidence or 0.0)
 
                 source_graph_payload = get_source_graph().ingest_evidence(sources)
 
@@ -466,8 +492,9 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     "sources": sources,
                     "claim": claim,
                     "original_claim": claim,
+                    "extracted_text": extracted_text,
                     "evidence": explainability_data["evidence"],
-                    "normalized_claim": advanced_result.get("normalized_claim", semantic_metadata.get("normalized_claim")),
+                    "normalized_claim": semantic_metadata.get("normalized_claim"),
                     "similar_claims": [
                         {
                             "statement": row.get("premise", ""),
@@ -479,18 +506,18 @@ class LightweightHandler(BaseHTTPRequestHandler):
                     "credibility": {
                         "verdict": verdict_raw,
                         "confidence": confidence,
-                        "entailment": float(advanced_result.get("verdict", {}).get("entailment", 0.0) or 0.0),
-                        "contradiction": float(advanced_result.get("verdict", {}).get("contradiction", 0.0) or 0.0),
+                        "entailment": float(np.mean([r.get("nli_scores", {}).get("entailment", 0.0) for r in (decision_nli or nli_results)]) if (decision_nli or nli_results) else 0.0),
+                        "contradiction": float(np.mean([r.get("nli_scores", {}).get("contradiction", 0.0) for r in (decision_nli or nli_results)]) if (decision_nli or nli_results) else 0.0),
                     },
                     "analysis_time_seconds": round(time.time() - start_time, 3),
                     "dataset_used": "full_pipeline_topk_clustered",
                     "source_credibility_graph": source_graph_payload,
                     "pipeline": {
-                        "mode": "full_advanced",
+                        "mode": "stable_nli",
                         "semantic_matches": len(nli_pairs),
-                        "cluster_count": advanced_result.get("clustering", {}).get("cluster_count", 0),
-                        "alerts": len(advanced_result.get("alerts", {}).get("logged", [])),
-                        "bayesian_state": advanced_result.get("bayesian_state", {}),
+                        "cluster_count": 0,
+                        "alerts": 0,
+                        "bayesian_state": {},
                     },
                 }
                 
@@ -514,6 +541,7 @@ def run_server(port=8000):
     print(f"   • GET  http://localhost:{port}/archived?page=1 (instant)")
     print(f"   • GET  http://localhost:{port}/threats (instant)")
     print(f"   • GET  http://localhost:{port}/regions (instant)")
+    print(f"   • POST http://localhost:{port}/extract_text_image (OCR)")
     print(f"   • POST http://localhost:{port}/analyze_claim (uses analysis pipeline)\n")
     print("✨ Backend ready!\n")
     print("=" * 60 + "\n")
