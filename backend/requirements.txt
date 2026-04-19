@@ -24,6 +24,7 @@ google-generativeai==0.8.5
 
 # Required for deployed verification pipeline
 sentence-transformers==2.2.2
+huggingface-hub==0.19.4
 transformers==4.35.2
 torch==2.1.1
 pandas==2.1.3
