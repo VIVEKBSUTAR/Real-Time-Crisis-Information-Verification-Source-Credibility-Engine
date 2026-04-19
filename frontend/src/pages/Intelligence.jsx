@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { CheckCircle, XCircle, Clock, Bot, GitBranch, ChevronDown, ChevronUp, Upload } from 'lucide-react';
 import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { apiUrl } from '../config/api';
 
 export default function Intelligence() {
   const [claim, setClaim] = useState('');
@@ -18,7 +19,7 @@ export default function Intelligence() {
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/analyze_claim', {
+      const response = await fetch(apiUrl('/analyze_claim'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: claim, image_base64: imageBase64 }),

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Search, FileText } from 'lucide-react';
+import { apiUrl } from '../config/api';
 
 export default function Archived() {
   const [claims, setClaims] = useState([]);
@@ -14,7 +15,7 @@ export default function Archived() {
     const fetchClaims = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:8000/archived?page=${page}`);
+        const response = await fetch(`${apiUrl('/archived')}?page=${page}`);
         if (response.ok) {
           const data = await response.json();
           setClaims(data.claims);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Globe } from 'lucide-react';
+import { apiUrl } from '../config/api';
 
 export default function GlobalMap() {
   const [regions, setRegions] = useState([]);
@@ -8,7 +9,7 @@ export default function GlobalMap() {
   useEffect(() => {
     const fetchRegions = async () => {
       try {
-        const response = await fetch('http://localhost:8000/regions');
+        const response = await fetch(apiUrl('/regions'));
         if (response.ok) {
           const data = await response.json();
           setRegions(data);

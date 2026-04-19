@@ -192,6 +192,23 @@ npm start
 Frontend runs on:
 - `http://localhost:3000`
 
+## 6.4 Free cloud deployment (Render + Vercel)
+
+### Backend on Render (free)
+1. Push this repository and connect it to Render.
+2. Create a new **Web Service** and use `render.yaml` from repo root.
+3. Set environment variable:
+   - `GEMINI_API_KEY` (optional, for GenAI explanations)
+4. Deploy and copy backend URL (example: `https://sentinel-backend.onrender.com`).
+
+### Frontend on Vercel (free)
+1. Import `frontend/` project in Vercel.
+2. Set environment variable in Vercel project settings:
+   - `REACT_APP_API_URL=https://your-render-backend.onrender.com`
+3. Redeploy frontend.
+
+Frontend uses `REACT_APP_API_URL` via `frontend/src/config/api.js`.
+
 ## 6.3 Verify services quickly
 
 ```bash

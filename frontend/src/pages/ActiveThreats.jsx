@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, TrendingUp, Filter, FileDown } from 'lucide-react';
+import { apiUrl } from '../config/api';
 
 export default function ActiveThreats() {
   const [threats, setThreats] = useState([]);
@@ -9,7 +10,7 @@ export default function ActiveThreats() {
   useEffect(() => {
     const fetchThreats = async () => {
       try {
-        const response = await fetch('http://localhost:8000/threats');
+        const response = await fetch(apiUrl('/threats'));
         if (response.ok) {
           const data = await response.json();
           setThreats(data);

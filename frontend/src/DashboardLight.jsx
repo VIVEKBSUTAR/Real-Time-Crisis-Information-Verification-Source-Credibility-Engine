@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Menu, Settings, Home, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { apiUrl } from './config/api';
 
 export default function DashboardLight() {
   const [claim, setClaim] = useState('');
@@ -13,7 +14,7 @@ export default function DashboardLight() {
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/analyze_claim', {
+      const response = await fetch(apiUrl('/analyze_claim'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: claim }),

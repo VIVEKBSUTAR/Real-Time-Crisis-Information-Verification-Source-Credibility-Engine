@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, PieChart as PieChartIcon } from 'lucide-react';
+import { apiUrl } from '../config/api';
 
 export default function Analytics() {
   const [stats, setStats] = useState(null);
@@ -8,7 +9,7 @@ export default function Analytics() {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const response = await fetch('http://localhost:8000/analytics');
+        const response = await fetch(apiUrl('/analytics'));
         if (response.ok) {
           const data = await response.json();
           setStats(data);
