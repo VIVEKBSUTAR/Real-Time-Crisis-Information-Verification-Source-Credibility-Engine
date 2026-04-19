@@ -330,6 +330,12 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 print(f"📊 Analyzing: {claim[:50]}...")
 
                 start_time = time.time()
+                def resolve_source_name(row):
+                    for key in ("source", "publisher", "outlet", "domain", "region", "category"):
+                        value = str(row.get(key, "") or "").strip()
+                        if value and value.lower() not in {"unknown", "unknown source", "dataset", "dataset source"}:
+                            return value
+                    return "Unknown Source"
 
                 # Full pipeline routing:
                 # Input -> Normalization -> Embedding+Clustering -> Cluster Signals
@@ -407,7 +413,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 evidence_candidates = []
                 evidence_lookup = {}
                 for row in nli_results:
-                    row["source"] = row.get("source", "dataset")
+                    row["source"] = resolve_source_name(row)
                     relation = relation_map.get(
                         nli_service.get_relationship(row.get("nli_scores", {})),
                         "neutral",
@@ -443,7 +449,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                             "label": "TRUE" if item.get("relation") == "supports" else "FALSE",
                             "relation": item.get("relation", "neutral"),
                             "score": float(item.get("score", 0.0) or 0.0),
-                            "source": str(src_row.get("source", "dataset")),
+                            "source": resolve_source_name(src_row),
                         }
                     )
 
@@ -464,7 +470,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                                 "neutral",
                             ),
                             "score": float(row.get("similarity", 0.0) or 0.0),
-                            "source": str(row.get("source", "dataset")),
+                            "source": resolve_source_name(row),
                         }
                         for row in fallback_ranked
                     ]
