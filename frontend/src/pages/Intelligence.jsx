@@ -91,7 +91,7 @@ export default function Intelligence() {
     const sourceEvidence = result.sourceGraph?.source_evidence || {};
     const hasSingleGenericNode =
       graphNodes.length === 1 &&
-      ['dataset', 'unknown source', 'dataset source'].includes(String(graphNodes[0]?.id || '').toLowerCase());
+      ['dataset', 'unknown', 'unknown source', 'dataset source'].includes(String(graphNodes[0]?.id || '').toLowerCase());
 
     // Fallback graph synthesis for responses that don't return source_credibility_graph.
     if ((graphNodes.length === 0 || hasSingleGenericNode) && Array.isArray(result.sources) && result.sources.length > 0) {
@@ -99,7 +99,7 @@ export default function Intelligence() {
       result.sources.forEach((item, idx) => {
         const rawSource = String(item.source || '').trim();
         const relation = String(item.relation || 'neutral').toLowerCase();
-        const useSyntheticSource = !rawSource || ['dataset', 'unknown source', 'dataset source'].includes(rawSource.toLowerCase());
+        const useSyntheticSource = !rawSource || ['dataset', 'unknown', 'unknown source', 'dataset source'].includes(rawSource.toLowerCase());
         const sourceName = useSyntheticSource
           ? `Evidence ${idx + 1} (${relation})`
           : rawSource;
