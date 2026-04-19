@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { CheckCircle, XCircle, Clock, Bot, GitBranch, ChevronDown, ChevronUp } from 'lucide-react';
-import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
+import { CheckCircle, XCircle, Clock, Bot, GitBranch, ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 export default function Intelligence() {
@@ -9,29 +9,44 @@ export default function Intelligence() {
   const [result, setResult] = useState(null);
   const [showGraph, setShowGraph] = useState(false);
   const [selectedSource, setSelectedSource] = useState(null);
+  const [imageBase64, setImageBase64] = useState('');
+  const [imageName, setImageName] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!claim.trim()) return;
+    if (!claim.trim() && !imageBase64) return;
 
     setIsLoading(true);
     try {
       const response = await fetch('http://localhost:8000/analyze_claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: claim }),
+        body: JSON.stringify({ text: claim, image_base64: imageBase64 }),
       });
 
       if (!response.ok) throw new Error('Backend error');
 
       const data = await response.json();
+      const normalizedSources = Array.isArray(data.sources) && data.sources.length > 0
+        ? data.sources
+        : (data.supporting_sources || []).map((src) => ({
+            text: src.text || src.quote || '',
+            similarity: typeof src.similarity === 'number'
+              ? src.similarity
+              : (typeof src.confidence === 'number' ? src.confidence : 0.0),
+            label: src.relation === 'support' ? 'TRUE' : 'FALSE',
+            relation: src.relation === 'support' ? 'supports' : 'neutral',
+            score: typeof src.confidence === 'number' ? src.confidence : 0.0,
+            source: src.source_name || 'Dataset Source',
+          }));
       setResult({
         claim: data.claim,
         verdict: data.verdict,
         confidence: Math.round(data.confidence * 100),
         explanation: data.explanation,
         evidence_summary: data.evidence_summary,
-        sources: data.sources || [],
+        sources: normalizedSources,
+        extracted_text: data.extracted_text || '',
         sourceGraph: data.source_credibility_graph || { nodes: [], edges: [], source_evidence: {} },
       });
       setShowGraph(false);
@@ -41,6 +56,18 @@ export default function Intelligence() {
       alert('Error analyzing claim: ' + error.message);
     }
     setIsLoading(false);
+  };
+
+  const handleImageUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      setImageBase64(result);
+      setImageName(file.name);
+    };
+    reader.readAsDataURL(file);
   };
 
   const getVerdictIcon = (verdict) => {
@@ -58,11 +85,63 @@ export default function Intelligence() {
   const verdictStyle = result ? getVerdictColor(result.verdict) : null;
 
   const graphNodesAndEdges = useMemo(() => {
-    if (!result?.sourceGraph?.nodes) return { nodes: [], edges: [] };
-    const graphNodes = result.sourceGraph.nodes || [];
-    const graphEdges = result.sourceGraph.edges || [];
+    if (!result) return { nodes: [], edges: [], stats: { nodes: 0, edges: 0, avgTrust: 0 } };
+    const graphNodes = (result.sourceGraph?.nodes || []).slice();
+    const graphEdges = (result.sourceGraph?.edges || []).slice();
+    const sourceEvidence = result.sourceGraph?.source_evidence || {};
+    const hasSingleGenericNode =
+      graphNodes.length === 1 &&
+      ['dataset', 'unknown source', 'dataset source'].includes(String(graphNodes[0]?.id || '').toLowerCase());
+
+    // Fallback graph synthesis for responses that don't return source_credibility_graph.
+    if ((graphNodes.length === 0 || hasSingleGenericNode) && Array.isArray(result.sources) && result.sources.length > 0) {
+      const grouped = {};
+      result.sources.forEach((item, idx) => {
+        const rawSource = String(item.source || '').trim();
+        const relation = String(item.relation || 'neutral').toLowerCase();
+        const useSyntheticSource = !rawSource || ['dataset', 'unknown source', 'dataset source'].includes(rawSource.toLowerCase());
+        const sourceName = useSyntheticSource
+          ? `Evidence ${idx + 1} (${relation})`
+          : rawSource;
+        if (!grouped[sourceName]) grouped[sourceName] = [];
+        grouped[sourceName].push(item);
+      });
+      const sourceNames = Object.keys(grouped);
+      sourceNames.forEach((name) => {
+        const evidence = grouped[name];
+        const avgSimilarity = evidence.reduce((acc, e) => acc + (Number(e.similarity) || 0), 0) / Math.max(evidence.length, 1);
+        const supportCount = evidence.filter((e) => (e.relation || '').toLowerCase() === 'supports').length;
+        const trust = Math.max(0.2, Math.min(0.95, (avgSimilarity * 0.7) + ((supportCount / Math.max(evidence.length, 1)) * 0.3)));
+        graphNodes.push({
+          id: name,
+          trust,
+          influence: 0,
+          low_credibility: trust < 0.3,
+        });
+        sourceEvidence[name] = evidence.slice(0, 5).map((e) => ({
+          text: e.text || '',
+          relation: e.relation || 'neutral',
+          label: e.label || 'UNKNOWN',
+          similarity: Number(e.similarity) || 0,
+        }));
+      });
+      for (let i = 0; i < sourceNames.length; i += 1) {
+        for (let j = i + 1; j < sourceNames.length; j += 1) {
+          const left = grouped[sourceNames[i]];
+          const right = grouped[sourceNames[j]];
+          const leftSim = left.reduce((acc, e) => acc + (Number(e.similarity) || 0), 0) / Math.max(left.length, 1);
+          const rightSim = right.reduce((acc, e) => acc + (Number(e.similarity) || 0), 0) / Math.max(right.length, 1);
+          graphEdges.push({
+            source: sourceNames[i],
+            target: sourceNames[j],
+            weight: Number(((leftSim + rightSim) / 2).toFixed(2)),
+          });
+        }
+      }
+    }
+
     const total = graphNodes.length || 1;
-    const radius = 180;
+    const radius = Math.min(220, 80 + total * 18);
     const centerX = 260;
     const centerY = 190;
 
@@ -87,6 +166,7 @@ export default function Intelligence() {
             <div title={tooltip} className="text-center">
               <div className="text-xs font-semibold">{node.id}</div>
               <div className="text-[11px]">Trust {(node.trust || 0).toFixed(2)}</div>
+              <div className="text-[10px] text-slate-500">Influence {(node.influence || 0).toFixed(2)}</div>
               {node.low_credibility && (
                 <div className="text-[10px] font-semibold text-rose-700">⚠ Low credibility</div>
               )}
@@ -100,9 +180,10 @@ export default function Intelligence() {
           background: color.bg,
           border: `2px solid ${color.border}`,
           color: color.text,
-          borderRadius: 12,
+          borderRadius: 14,
           padding: 8,
-          minWidth: 120,
+          minWidth: 130,
+          boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
         },
       };
     });
@@ -111,16 +192,35 @@ export default function Intelligence() {
       id: `e-${edge.source}-${edge.target}-${idx}`,
       source: edge.source,
       target: edge.target,
-      animated: false,
+      type: 'smoothstep',
+      animated: (edge.weight || 0) > 0.7,
       label: `${(edge.weight || 0).toFixed(2)}`,
       style: {
-        strokeWidth: Math.max(1, Math.round((edge.weight || 0) * 4)),
-        stroke: '#64748b',
+        strokeWidth: Math.max(1, Math.round((edge.weight || 0) * 5)),
+        stroke: '#475569',
       },
       labelStyle: { fill: '#475569', fontSize: 10 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 14,
+        height: 14,
+        color: '#475569',
+      },
     }));
 
-    return { nodes, edges };
+    const avgTrust = graphNodes.length > 0
+      ? graphNodes.reduce((acc, n) => acc + (Number(n.trust) || 0), 0) / graphNodes.length
+      : 0;
+
+    return {
+      nodes,
+      edges,
+      stats: {
+        nodes: graphNodes.length,
+        edges: graphEdges.length,
+        avgTrust: Number(avgTrust.toFixed(2)),
+      },
+    };
   }, [result]);
 
   const selectedSourceEvidence = result?.sourceGraph?.source_evidence?.[selectedSource] || [];
@@ -150,11 +250,21 @@ export default function Intelligence() {
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
                   type="submit"
-                  disabled={isLoading || !claim.trim()}
+                  disabled={isLoading || (!claim.trim() && !imageBase64)}
                   className="px-5 py-2.5 bg-indigo-700 text-white rounded-lg text-sm font-semibold hover:bg-indigo-800 disabled:bg-slate-400 disabled:cursor-not-allowed transition"
                 >
                   {isLoading ? 'Analyzing...' : 'Run Verification'}
                 </button>
+                <label className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition cursor-pointer inline-flex items-center gap-2">
+                  <Upload size={16} />
+                  Upload Image
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                  />
+                </label>
                 <button
                   type="button"
                     onClick={() => {
@@ -162,12 +272,17 @@ export default function Intelligence() {
                       setResult(null);
                       setShowGraph(false);
                       setSelectedSource(null);
+                      setImageBase64('');
+                      setImageName('');
                     }}
                     className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 transition"
                   >
                   Reset
                 </button>
               </div>
+              {imageName && (
+                <p className="mt-3 text-xs text-slate-500">Image selected: {imageName}</p>
+              )}
             </form>
           </div>
 
@@ -187,6 +302,13 @@ export default function Intelligence() {
                     <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">Claim</p>
                     <p className="text-slate-700">{result.claim}</p>
                   </div>
+
+                  {result.extracted_text && (
+                    <div className="bg-white rounded-xl p-4 border border-slate-200 mb-4">
+                      <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">Extracted OCR Text</p>
+                      <p className="text-slate-700">{result.extracted_text}</p>
+                    </div>
+                  )}
 
                   <div className="analysis-container">
                     <div className="analysis-grid">
@@ -252,19 +374,54 @@ export default function Intelligence() {
 
                     {showGraph && (
                       <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-4">
-                        <div className="xl:col-span-2 border border-slate-200 rounded-lg overflow-hidden bg-slate-50" style={{ height: 420 }}>
-                          <ReactFlow
-                            nodes={graphNodesAndEdges.nodes}
-                            edges={graphNodesAndEdges.edges}
-                            fitView
-                            onNodeClick={(_, node) => setSelectedSource(node.id)}
-                          >
-                            <MiniMap />
-                            <Controls />
-                            <Background gap={16} size={1} />
-                          </ReactFlow>
+                        <div className="xl:col-span-2 border border-slate-200 rounded-lg overflow-hidden bg-gradient-to-br from-slate-50 to-slate-100" style={{ height: 420 }}>
+                          {graphNodesAndEdges.nodes.length > 0 ? (
+                            <ReactFlow
+                              nodes={graphNodesAndEdges.nodes}
+                              edges={graphNodesAndEdges.edges}
+                              fitView
+                              minZoom={0.5}
+                              maxZoom={1.7}
+                              onNodeClick={(_, node) => setSelectedSource(node.id)}
+                            >
+                              <MiniMap pannable zoomable />
+                              <Controls showInteractive />
+                              <Background gap={16} size={1} color="#cbd5e1" />
+                            </ReactFlow>
+                          ) : (
+                            <div className="h-full w-full flex items-center justify-center text-center p-8">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-700">No graph data available for this query</p>
+                                <p className="mt-2 text-xs text-slate-500">
+                                  Try a more specific claim or include an image with readable source text.
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div className="border border-slate-200 rounded-lg bg-slate-50 p-3">
+                          <div className="grid grid-cols-3 gap-2 mb-3">
+                            <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                              <p className="text-[10px] text-slate-500">Nodes</p>
+                              <p className="text-sm font-semibold text-slate-800">{graphNodesAndEdges.stats?.nodes || 0}</p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                              <p className="text-[10px] text-slate-500">Edges</p>
+                              <p className="text-sm font-semibold text-slate-800">{graphNodesAndEdges.stats?.edges || 0}</p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                              <p className="text-[10px] text-slate-500">Avg Trust</p>
+                              <p className="text-sm font-semibold text-slate-800">{(graphNodesAndEdges.stats?.avgTrust || 0).toFixed(2)}</p>
+                            </div>
+                          </div>
+                          <div className="mb-3 rounded-md border border-slate-200 bg-white p-2">
+                            <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500 mb-1">Legend</p>
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />High Trust</span>
+                              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />Medium Trust</span>
+                              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500" />Low Trust</span>
+                            </div>
+                          </div>
                           <p className="text-xs uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">
                             {selectedSource ? `Source: ${selectedSource}` : 'Source Evidence'}
                           </p>
