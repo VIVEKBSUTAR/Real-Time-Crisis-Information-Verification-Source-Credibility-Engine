@@ -1,6 +1,6 @@
 # Sentinel Protocol
 
-AI-powered crisis claim verification system with evidence ranking, OCR ingestion, and source credibility graphing.
+AI-powered crisis claim verification system with evidence ranking, image enhancement for OCR, and source credibility graphing.
 
 ## 1. What this project does
 
@@ -21,13 +21,14 @@ The default runtime is:
 Pipeline used by `/analyze_claim`:
 
 1. Input text and/or image
-2. OCR extraction (if image supplied and text is empty)
-3. Semantic retrieval (Top-K)
-4. NLI evaluation
-5. Evidence Selection Agent (filters low-value evidence)
-6. Stable post-NLI aggregation for verdict/confidence
-7. Explainability generation
-8. Source trust graph update and response payload
+2. Image Enhancement Agent (if image is provided and OCR path is used)
+3. OCR extraction (best-of baseline/enhanced OCR path)
+4. Semantic retrieval (Top-K)
+5. NLI evaluation
+6. Evidence Selection Agent (filters low-value evidence)
+7. Stable post-NLI aggregation for verdict/confidence
+8. Explainability generation
+9. Source trust graph update and response payload
 
 ## 3. Repository layout
 
@@ -42,6 +43,7 @@ demo1/
 │   │   │   └── advanced_pipeline.py
 │   │   ├── services/
 │   │   │   ├── evidence_selection_agent.py
+│   │   │   ├── image_enhancement_agent.py
 │   │   │   ├── nli_service.py
 │   │   │   ├── post_nli_service.py
 │   │   │   ├── source_credibility_graph.py
@@ -71,7 +73,7 @@ demo1/
 Implemented in `backend/app/services/evidence_selection_agent.py`
 
 - Score function:
-  `score = (0.6 * similarity) + (0.4 * relation_weight)`
+  `score = (w1 * similarity) + (w2 * relation_weight)`
 - Relation weights:
   - `supports`: `1.0`
   - `contradicts`: `1.0`
@@ -80,18 +82,34 @@ Implemented in `backend/app/services/evidence_selection_agent.py`
   - filter out evidence with similarity `< 0.5`
   - down-rank neutral evidence
   - enforce support/contradict diversity where possible
+  - dynamic per-request weighting (`w1`, `w2`) bounded for stability
   - deterministic tie-breaking
 
-### 4.3 OCR extraction
+### 4.3 Image Enhancement Agent (new)
+Implemented in `backend/app/services/image_enhancement_agent.py`
+
+- Adaptive image enhancement before OCR:
+  - deskew (rotation correction)
+  - local contrast enhancement (CLAHE)
+  - denoising
+  - blur-aware sharpening
+  - dark-image gamma lift
+- Designed as deterministic pre-OCR processing (no side effects).
+
+### 4.4 OCR extraction
 Implemented in `backend/app/services/ocr_service.py`
 
 - Preprocessing: grayscale -> denoise -> adaptive threshold -> morphology
+- Two OCR paths are evaluated:
+  1. baseline preprocessing
+  2. enhanced-image preprocessing via Image Enhancement Agent
+- Best text is selected with a deterministic OCR quality score
 - OCR via `pytesseract`
 - Output normalization for clean text
 - API endpoint: `POST /extract_text_image`
 - Also integrated into `POST /analyze_claim` when only image is provided
 
-### 4.4 Dynamic Source Credibility Graph
+### 4.5 Dynamic Source Credibility Graph
 Implemented in `backend/app/services/source_credibility_graph.py`
 
 - Source nodes with trust score `[0.0, 1.0]`
@@ -100,7 +118,7 @@ Implemented in `backend/app/services/source_credibility_graph.py`
 - Low credibility flag if trust `< 0.3`
 - Returned in response as `source_credibility_graph` (`nodes`, `edges`, `source_evidence`)
 
-### 4.5 Frontend graph + OCR UI
+### 4.6 Frontend graph + OCR UI
 Implemented in `frontend/src/pages/Intelligence.jsx`
 
 - Claim text submission
@@ -277,8 +295,9 @@ Intelligence page supports:
 
 1. direct text claim verification
 2. image upload + OCR-assisted verification
-3. evidence panel
-4. collapsible source graph with node inspection
+3. image enhancement + OCR extraction flow (image-only input path)
+4. evidence panel
+5. collapsible source graph with node inspection
 
 ## 10. Troubleshooting
 
@@ -299,6 +318,8 @@ pip install pytesseract opencv-python Pillow
 ```bash
 tesseract --version
 ```
+
+Note: in `/analyze_claim`, OCR path is used when claim text is empty and `image_base64` is provided.
 
 ## 10.3 Same output for different claims
 
