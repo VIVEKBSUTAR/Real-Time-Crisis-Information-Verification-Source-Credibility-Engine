@@ -8,6 +8,7 @@ import sys
 import socket
 import time
 import base64
+import os
 from difflib import SequenceMatcher
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -176,6 +177,7 @@ class LightweightHandler(BaseHTTPRequestHandler):
                 "mode": "fast data retrieval",
                 "embedding_ready": EMBEDDING_READY,
                 "dataset_ready": DATASET_READY,
+                "analysis_ready": ANALYSIS_READY,
                 "endpoints": ["/health", "/analytics", "/archived", "/threats", "/regions", "/extract_text_image", "/analyze_claim"]
             }
             self.send_json_response(200, response)
@@ -540,6 +542,13 @@ class LightweightHandler(BaseHTTPRequestHandler):
         self.send_json_response(code, {"error": message, "code": code})
 
 def run_server(port=8000):
+    if os.getenv("PRELOAD_DATASET", "1") == "1":
+        print("2️⃣  Preloading dataset + optimized analysis cache...")
+        if ensure_dataset_loaded():
+            print("   ✅ Preload complete\n")
+        else:
+            print("   ⚠️  Preload failed; server will retry lazily on request\n")
+
     print(f"3️⃣  Starting HTTP server on port {port}...\n")
     print("📍 Fast Endpoints:")
     print(f"   • GET  http://localhost:{port}/health")

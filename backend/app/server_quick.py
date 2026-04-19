@@ -8,6 +8,7 @@ import uuid
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
+from difflib import SequenceMatcher
 
 # Import pipeline components
 from app.dataset_loader import load_dataset, get_dataset
@@ -107,6 +108,28 @@ class VerificationHandler(BaseHTTPRequestHandler):
                 
                 # Run semantic pipeline
                 similar_results, stats = semantic_pipeline(claim, dataset, k=5)
+
+                # semantic_pipeline expects per-item embeddings, but quick mode dataset
+                # may only have raw text entries. Fall back to lexical matching.
+                if not similar_results and hasattr(dataset, "find_similar"):
+                    claim_lower = claim.lower()
+                    lexical = dataset.find_similar(claim, threshold=0.2, limit=5)
+                    similar_results = [
+                        {
+                            "text": row.get("text", ""),
+                            "label": int(row.get("label", 0) or 0),
+                            "similarity": float(
+                                SequenceMatcher(
+                                    None,
+                                    claim_lower,
+                                    str(row.get("text", "")).lower(),
+                                ).ratio()
+                            ),
+                            "source": str(row.get("source", "Dataset Source")),
+                        }
+                        for row in lexical
+                        if str(row.get("text", "")).strip()
+                    ]
                 
                 # Simple aggregation (without heavy NLI)
                 if similar_results:
@@ -134,6 +157,17 @@ class VerificationHandler(BaseHTTPRequestHandler):
                     "verdict": verdict,
                     "confidence": round(confidence, 2),
                     "explanation": f"Based on {len(similar_results)} similar claims in dataset",
+                    "sources": [
+                        {
+                            "text": row.get("text", ""),
+                            "similarity": float(row.get("similarity", 0.0) or 0.0),
+                            "label": "TRUE" if int(row.get("label", 0) or 0) == 1 else "FALSE",
+                            "relation": "supports" if int(row.get("label", 0) or 0) == 1 else "contradicts",
+                            "score": float(row.get("similarity", 0.0) or 0.0),
+                            "source": str(row.get("source", "Dataset Source")),
+                        }
+                        for row in similar_results
+                    ],
                     "evidence": {
                         "similar_claims_found": len(similar_results),
                         "confidence_percentage": round(confidence * 100)
