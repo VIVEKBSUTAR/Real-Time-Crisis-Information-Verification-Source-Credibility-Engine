@@ -6,6 +6,7 @@ Full workflow: Input → Normalization → Clustering → Trust → NLI → Deci
 import json
 import uuid
 import sys
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 import numpy as np
@@ -55,6 +56,98 @@ def ensure_dataset_loaded():
 # Initialize advanced pipeline
 pipeline = AdvancedVerificationPipeline()
 
+# ---------------------------------------------------------------------------
+# External API placeholders (for production readiness demo wiring)
+# ---------------------------------------------------------------------------
+EXTERNAL_API_PROVIDERS = {
+    "TwitterAPI": {"env_key": "TWITTER_BEARER_TOKEN", "status": "placeholder"},
+    "NewsAPI": {"env_key": "NEWSAPI_KEY", "status": "placeholder"},
+    "RedditAPI": {"env_key": "REDDIT_CLIENT_ID", "status": "placeholder"},
+    "MetaAPI": {"env_key": "META_GRAPH_TOKEN", "status": "placeholder"},
+    "GoogleNewsAPI": {"env_key": "GOOGLE_NEWS_API_KEY", "status": "placeholder"},
+}
+
+
+def _provider_configured(provider_name: str) -> bool:
+    """Check whether provider credentials are configured in environment."""
+    env_key = EXTERNAL_API_PROVIDERS.get(provider_name, {}).get("env_key", "")
+    return bool(env_key and os.getenv(env_key, "").strip())
+
+
+def _twitter_api_placeholder(claim: str) -> dict:
+    return {
+        "provider": "TwitterAPI",
+        "configured": _provider_configured("TwitterAPI"),
+        "status": "placeholder",
+        "query": claim[:120],
+        "results": [],
+    }
+
+
+def _news_api_placeholder(claim: str) -> dict:
+    return {
+        "provider": "NewsAPI",
+        "configured": _provider_configured("NewsAPI"),
+        "status": "placeholder",
+        "query": claim[:120],
+        "results": [],
+    }
+
+
+def _reddit_api_placeholder(claim: str) -> dict:
+    return {
+        "provider": "RedditAPI",
+        "configured": _provider_configured("RedditAPI"),
+        "status": "placeholder",
+        "query": claim[:120],
+        "results": [],
+    }
+
+
+def _meta_api_placeholder(claim: str) -> dict:
+    return {
+        "provider": "MetaAPI",
+        "configured": _provider_configured("MetaAPI"),
+        "status": "placeholder",
+        "query": claim[:120],
+        "results": [],
+    }
+
+
+def _google_news_api_placeholder(claim: str) -> dict:
+    return {
+        "provider": "GoogleNewsAPI",
+        "configured": _provider_configured("GoogleNewsAPI"),
+        "status": "placeholder",
+        "query": claim[:120],
+        "results": [],
+    }
+
+
+def collect_external_api_placeholders(claim: str) -> dict:
+    """
+    Collect placeholder responses for future external-source connectors.
+    This does not call third-party APIs; it only returns integration stubs.
+    """
+    providers = [
+        _twitter_api_placeholder(claim),
+        _news_api_placeholder(claim),
+        _reddit_api_placeholder(claim),
+        _meta_api_placeholder(claim),
+        _google_news_api_placeholder(claim),
+    ]
+    configured_count = sum(1 for p in providers if p["configured"])
+    return {
+        "enabled": False,
+        "summary": {
+            "providers_total": len(providers),
+            "providers_configured": configured_count,
+            "providers_unconfigured": len(providers) - configured_count,
+            "mode": "placeholders_only",
+        },
+        "providers": providers,
+    }
+
 class AdvancedVerificationHandler(BaseHTTPRequestHandler):
     """Handle advanced verification requests"""
     
@@ -93,7 +186,15 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                     "alert_routing",
                     "explanation_generation",
                     "bayesian_learning"
-                ]
+                ],
+                "external_api_placeholders": {
+                    name: {
+                        "env_key": cfg["env_key"],
+                        "configured": _provider_configured(name),
+                        "status": cfg["status"],
+                    }
+                    for name, cfg in EXTERNAL_API_PROVIDERS.items()
+                },
             }
             self.wfile.write(json.dumps(response).encode())
             return
@@ -152,6 +253,7 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                     user_embedding=user_embedding,
                     nli_results=nli_results,
                 )
+                external_api_placeholders = collect_external_api_placeholders(claim)
                 
                 # Format response
                 response = {
@@ -218,6 +320,7 @@ class AdvancedVerificationHandler(BaseHTTPRequestHandler):
                             "✅ bayesian_update"
                         ]
                     },
+                    "external_api_placeholders": external_api_placeholders,
                     
                     "timestamp": datetime.now().isoformat()
                 }
